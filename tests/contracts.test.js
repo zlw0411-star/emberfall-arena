@@ -155,15 +155,37 @@ test('hunt AI retreats before lethal exchanges and aims escape dash along its re
 });
 
 test('generated maps have legal, connected spawn points and a clear finale center', () => {
-  for (const seed of ['connect-a', 'connect-b', 'connect-c']) {
+  for (const seed of ['connect-a', 'connect-b', 'connect-c', 'connect-d', 'connect-e', 'connect-f', 'connect-g', 'connect-h', 'connect-i', 'connect-j', 'connect-k', 'connect-l']) {
     const map = generateMap(seed);
-    assert.equal(map.spawnPoints.length, 8);
+    assert.equal(map.spawnPoints.length, 12, `wrong spawn count in ${seed}`);
     assert.ok(map.spawnPoints.every(p => p.x >= 16 && p.x <= map.width - 16 && p.y >= 16 && p.y <= map.height - 16));
     assert.ok(map.spawnPoints.every(p => mapCell(map, p.x, p.y)), `blocked spawn in ${seed}`);
     assert.ok(connectedSpawnPoints(map).every(Boolean), `disconnected spawn in ${seed}`);
+    for (let i = 0; i < map.spawnPoints.length; i++) {
+      for (let j = i + 1; j < map.spawnPoints.length; j++) {
+        const a = map.spawnPoints[i];
+        const b = map.spawnPoints[j];
+        assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 24, `overlapping spawn points ${i}/${j} in ${seed}`);
+      }
+    }
     assert.equal(mapCell(map, map.width / 2, map.height / 2), true, `center blocked in ${seed}`);
     for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 12) {
       assert.equal(mapCell(map, map.width / 2 + Math.cos(angle) * 99, map.height / 2 + Math.sin(angle) * 99), true, `finale center ring blocked in ${seed}`);
+    }
+  }
+});
+
+test('each game starts with one player and eleven uniquely identified, named, colored AIs', () => {
+  for (const seed of ['roster-a', 'roster-b', 'roster-c', 'roster-d']) {
+    const game = createGame(seed);
+    const actors = actorsOf(game);
+    assert.equal(actors.length, 12, `wrong roster size in ${seed}`);
+    assert.equal(actors.filter(actor => actor.isPlayer).length, 1, `expected exactly one player in ${seed}`);
+    assert.equal(actors.filter(actor => !actor.isPlayer).length, 11, `expected eleven AIs in ${seed}`);
+    for (const field of ['id', 'name', 'color']) {
+      const values = actors.map(actor => actor[field]);
+      assert.ok(values.every(value => typeof value === 'string' && value.length > 0), `missing ${field} in ${seed}`);
+      assert.equal(new Set(values).size, actors.length, `duplicate ${field} in ${seed}`);
     }
   }
 });
@@ -490,4 +512,84 @@ test('final shrink reaches its center and same-tick last deaths settle as a draw
   const restarted = createGame('finale-draw-contract');
   assert.equal(restarted.result, null);
   assert.equal(restarted.time, 0);
+});
+
+test('match deadline starts one timed finale and never resets an existing finale', () => {
+  const game = createGame('deadline-start-contract');
+  game.time = CONFIG.finaleDeadline - 1 / 60;
+  for (const actor of actorsOf(game)) actor.level = 1;
+  stepGame(game, 1 / 60, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(game.phase, 'finale');
+  assert.equal(game.zone.reason, 'time');
+  assert.equal(game.zone.startedAt, CONFIG.finaleDeadline);
+
+  const alreadyFinale = createGame('deadline-preserve-contract');
+  alreadyFinale.phase = 'finale';
+  alreadyFinale.time = CONFIG.finaleDeadline - 1 / 60;
+  alreadyFinale.zone = { x: 1000, y: 1000, radius: 1300, initialRadius: 1300, startedAt: 300, reason: 'level' };
+  stepGame(alreadyFinale, 1 / 60, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(alreadyFinale.zone.startedAt, 300, 'deadline reset the existing finale countdown');
+  assert.equal(alreadyFinale.zone.reason, 'level');
+});
+
+test('pause freezes the match deadline and timed-finale countdown', () => {
+  const game = createGame('deadline-pause-contract');
+  game.time = CONFIG.finaleDeadline - 0.05;
+  game.paused = true;
+  stepGame(game, 1, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(game.time, CONFIG.finaleDeadline - 0.05);
+  assert.equal(game.phase, 'grace');
+  assert.equal(game.zone, null);
+  game.paused = false;
+  stepGame(game, 0.1, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(game.phase, 'finale');
+  assert.equal(game.zone.reason, 'time');
+});
+
+test('12-minute storm draws multiple center survivors simultaneously and resolves pending choices', () => {
+  const game = createGame('deadline-draw-contract');
+  game.time = CONFIG.matchLimit - 0.01;
+  game.phase = 'finale';
+  game.zone = { x: game.map.width / 2, y: game.map.height / 2, radius: 0, initialRadius: 0, startedAt: CONFIG.finaleDeadline, reason: 'time' };
+  game.monsters = [];
+  game.bullets = [];
+  game.gems = [];
+  const actors = actorsOf(game);
+  for (const actor of actors.slice(2)) actor.alive = false;
+  for (const actor of actors.slice(0, 2)) {
+    actor.x = game.zone.x;
+    actor.y = game.zone.y;
+    actor.attackTimer = 100;
+  }
+  const player = playerOf(game);
+  player.pendingChoices = 1;
+  player.choices = getChoices(game, player);
+  stepGame(game, 0.1, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(game.time, CONFIG.matchLimit, 'deadline step was not clamped to 12 minutes');
+  assert.ok(game.result, 'deadline storm did not settle the match');
+  assert.equal(game.result.winnerId, null, 'multiple deadline survivors should draw');
+  assert.equal(actors.filter(actor => actor.alive).length, 0);
+  assert.ok(actors.slice(0, 2).every(actor => actor.lastDamageKind === 'zone'), 'deadline eliminations were not classified as storm damage');
+  assert.equal(player.pendingChoices, 0, 'death at settlement should clear unresolved skill choices');
+  assert.deepEqual(player.choices, [], 'settled player retained an open skill choice');
+});
+
+test('12-minute storm preserves a sole center survivor as winner', () => {
+  const game = createGame('deadline-winner-contract');
+  game.time = CONFIG.matchLimit - 0.01;
+  game.phase = 'finale';
+  game.zone = { x: game.map.width / 2, y: game.map.height / 2, radius: 0, initialRadius: 0, startedAt: CONFIG.finaleDeadline, reason: 'time' };
+  game.monsters = [];
+  game.bullets = [];
+  const actors = actorsOf(game);
+  for (const actor of actors.slice(1)) actor.alive = false;
+  const survivor = actors[0];
+  survivor.x = game.zone.x;
+  survivor.y = game.zone.y;
+  survivor.attackTimer = 100;
+  stepGame(game, 0.1, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(game.time, CONFIG.matchLimit);
+  assert.equal(actors.filter(actor => actor.alive).length, 1);
+  assert.equal(game.result?.winnerId, survivor.id);
+  assert.notEqual(survivor.lastDamageKind, 'zone', 'deadline storm killed the sole survivor');
 });

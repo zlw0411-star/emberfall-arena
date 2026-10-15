@@ -1,3 +1,4 @@
+export const MATCH_SIZE = 12;
 const WORLD_SIZE = 2048;
 const TILE_SIZE = 32;
 const INDEX_CELL_SIZE = 128;
@@ -140,8 +141,8 @@ export function generateMap(seed = 1) {
   };
   const center = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
   const spawnRadius = 790;
-  for (let i = 0; i < 8; i++) {
-    const angle = -Math.PI / 2 + i * Math.PI / 4;
+  for (let i = 0; i < MATCH_SIZE; i++) {
+    const angle = -Math.PI / 2 + i * Math.PI * 2 / MATCH_SIZE;
     map.spawnPoints.push({
       x: center.x + Math.cos(angle) * spawnRadius,
       y: center.y + Math.sin(angle) * spawnRadius

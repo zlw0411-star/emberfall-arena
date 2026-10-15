@@ -3,6 +3,54 @@ import { blocked, lineClear } from './world.js';
 const GRID = 48;
 const BODY = 14;
 const SPIKE_ACTIVE_AT = 2.8;
+const navigationCaches = new WeakMap();
+const DIRECTIONS = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+
+// Geometry is static between map revisions. Share its navigation work across
+// actors while evaluating spike timing independently on every simulation tick.
+function navigationFor(map) {
+  let cache = navigationCaches.get(map);
+  const revision = map.obstacleRevision ?? map._obstacleRevision;
+  if (!cache || cache.obstacles !== map.obstacles || cache.obstacleCount !== map.obstacles?.length || cache.revision !== revision || cache.traps !== map.traps || cache.trapCount !== map.traps?.length || cache.width !== map.width || cache.height !== map.height) {
+    const { cols, rows } = dims(map);
+    cache = { obstacles: map.obstacles, obstacleCount: map.obstacles?.length, revision, traps: map.traps, trapCount: map.traps?.length, width: map.width, height: map.height, cols, rows, cells: new Array(cols * rows) };
+    navigationCaches.set(map, cache);
+  }
+  return cache;
+}
+function navigationCell(game, x, y) {
+  const cache = navigationFor(game.map);
+  const index = y * cache.cols + x;
+  let cell = cache.cells[index];
+  if (!cell) {
+    const point = pointFor(game.map, x, y);
+    const nearby = [];
+    for (const trap of game.map.traps || []) {
+      const d = Math.hypot(point.x - trap.x, point.y - trap.y);
+      if (trap.type === 'spike' && d < trap.r + 34) nearby.push({ trap, active: d < trap.r + 30 });
+      else if (trap.type === 'mud' && d < trap.r + 22) nearby.push({ trap });
+    }
+    cell = { point, valid: !blocked(game.map, point.x, point.y, BODY), nearby, edges: null, costTime: NaN, cost: 0 };
+    cache.cells[index] = cell;
+  }
+  return cell;
+}
+function navigationEdges(game, x, y) {
+  const cell = navigationCell(game, x, y);
+  if (cell.edges) return cell.edges;
+  const { cols, rows } = navigationFor(game.map);
+  const edges = [];
+  for (const [dx, dy] of DIRECTIONS) {
+    const nx = x + dx, ny = y + dy;
+    if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+    const next = navigationCell(game, nx, ny);
+    if (!next.valid) continue;
+    if (dx && dy && (!navigationCell(game, x + dx, y).valid || !navigationCell(game, x, y + dy).valid)) continue;
+    if (lineClear(game.map, cell.point, next.point, BODY)) edges.push({ x: nx, y: ny, cell: next, distance: dx && dy ? 1.4142 : 1 });
+  }
+  cell.edges = edges;
+  return edges;
+}
 
 function cellKey(x, y) { return `${x},${y}`; }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -50,19 +98,19 @@ function cellFor(map, p) {
   const { cols, rows } = dims(map);
   return { x: clamp(Math.floor(p.x / GRID), 0, cols - 1), y: clamp(Math.floor(p.y / GRID), 0, rows - 1) };
 }
-function trapCost(game, p) {
+function trapCost(game, cell) {
+  if (cell.costTime === game.time) return cell.cost;
   let cost = 0;
-  for (const t of game.map.traps || []) {
-    const d = Math.hypot(p.x - t.x, p.y - t.y);
-    if (t.type === 'spike' && activeSpike(game, t) && d < t.r + 30) cost += 48;
-    else if (t.type === 'spike' && d < t.r + 34) cost += 12;
-    else if (t.type === 'mud' && d < t.r + 22) cost += 3.5;
+  for (const { trap, active } of cell.nearby) {
+    if (trap.type === 'mud') cost += 3.5;
+    else cost += active && activeSpike(game, trap) ? 48 : 12;
   }
+  cell.costTime = game.time;
+  cell.cost = cost;
   return cost;
 }
 function validCell(game, ix, iy) {
-  const p = pointFor(game.map, ix, iy);
-  return !blocked(game.map, p.x, p.y, BODY);
+  return navigationCell(game, ix, iy).valid;
 }
 function nearestValidCell(game, origin) {
   const c = cellFor(game.map, origin);
@@ -86,24 +134,17 @@ function findPath(game, from, to) {
   const open = new MinHeap();
   const best = new Map([[startKey, 0]]);
   const parent = new Map();
-  const point = pointFor(map, start.x, start.y);
   open.push({ x: start.x, y: start.y, f: Math.hypot(goal.x - start.x, goal.y - start.y), g: 0 });
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
   let visited = 0;
   while (open.length && visited++ < cols * rows) {
     const node = open.pop();
     const key = cellKey(node.x, node.y);
     if (node.g !== best.get(key)) continue;
     if (key === goalKey) break;
-    for (const [dx, dy] of dirs) {
-      const x = node.x + dx, y = node.y + dy;
-      if (x < 0 || y < 0 || x >= cols || y >= rows || !validCell(game, x, y)) continue;
-      if (dx && dy && (!validCell(game, node.x + dx, node.y) || !validCell(game, node.x, node.y + dy))) continue;
-      const p = pointFor(map, x, y);
-      const here = pointFor(map, node.x, node.y);
-      if (!lineClear(map, here, p, BODY)) continue;
+    for (const edge of navigationEdges(game, node.x, node.y)) {
+      const { x, y } = edge;
       const nextKey = cellKey(x, y);
-      const g = node.g + (dx && dy ? 1.4142 : 1) + trapCost(game, p);
+      const g = node.g + edge.distance + trapCost(game, edge.cell);
       if (g >= (best.get(nextKey) ?? Infinity)) continue;
       best.set(nextKey, g);
       parent.set(nextKey, key);

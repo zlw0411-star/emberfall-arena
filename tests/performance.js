@@ -1,9 +1,9 @@
-import { createGame, spawnMonster, stepGame } from '../dist/js/simulation.js';
+import { CONFIG, createGame, spawnMonster, stepGame } from '../dist/js/simulation.js';
 
 const DT = 1 / 60;
 const WARMUP_SECONDS = 2;
 const MEASURE_SECONDS = 30;
-const game = createGame('performance-8ai-52m');
+const game = createGame(`performance-${CONFIG.actorCount}actors-${CONFIG.monsterCap}monsters`);
 
 game.phase = 'hunt';
 game.time = 90;
@@ -11,9 +11,9 @@ for (const actor of game.actors) {
   actor.isPlayer = false;
   actor.hp = actor.maxHp = 1_000_000;
 }
-while (game.monsters.filter(monster => monster.alive).length < 52) {
+while (game.monsters.filter(monster => monster.alive).length < CONFIG.monsterCap) {
   const monster = spawnMonster(game);
-  if (!monster) throw new Error('Could not populate 52 live monsters for benchmark');
+  if (!monster) throw new Error(`Could not populate ${CONFIG.monsterCap} live monsters for benchmark`);
 }
 for (const monster of game.monsters) {
   monster.hp = monster.maxHp = 1_000_000;

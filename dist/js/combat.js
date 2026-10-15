@@ -416,6 +416,7 @@ function scaledDamage(actor, amount) { return amount * (1 + Math.min(SKILLS.powe
 function levelMaxHp(level) { return COMBAT_BALANCE.baseMaxHp + (level - 1) * COMBAT_BALANCE.levelMaxHp; }
 function classifyDamage(game, target, sourceActor, source) {
   if (sourceActor) return 'actor';
+  if (source?.type === 'zone') return 'zone';
   if (source && (monsterList(game).includes(source) || ['slime', 'bat', 'brute'].includes(source.type))) return 'monster';
   if (!source && game?.phase === 'finale' && game.zone
     && Math.hypot(target.x - game.zone.x, target.y - game.zone.y) > game.zone.radius) return 'zone';
