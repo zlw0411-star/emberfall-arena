@@ -11,8 +11,8 @@
     <canvas id="game" aria-label="余烬试炼游戏画面"></canvas>
     <div class="scene-vignette"></div>
     <div class="inworld-label"><span class="tiny-diamond">◆</span> 失落庭院 <small>THE FORGOTTEN COURT</small></div>
-    <div class="zone-banner hidden" id="zone-banner"></div>
-    <div class="health-hud" id="health-hud"><div class="portrait"><canvas id="portrait" width="48" height="48"></canvas></div><div class="health-stats"><div class="health-name"><strong>灰烬旅者</strong><span id="player-level">LV. 01</span></div><div class="health-track"><i id="hp-fill"></i><span id="hp-text">280 / 280</span></div><div class="xp-track"><i id="xp-fill"></i></div><div class="xp-caption"><span>经验</span><span id="xp-text">0 / 88</span></div></div></div>
+    <div class="zone-banner hidden" id="zone-banner" role="status" aria-live="polite"></div>
+    <div class="health-hud" id="health-hud"><div class="portrait"><canvas id="portrait" width="48" height="48"></canvas></div><div class="health-stats"><div class="health-name"><strong>灰烬旅者</strong><span id="player-level">LV. 01</span></div><div class="health-track"><i id="hp-fill"></i><span id="hp-text">280 / 280</span></div><div class="xp-track"><i id="xp-fill"></i></div><div class="xp-caption"><span id="attack-stat">攻击 13.0</span><span id="xp-text">XP 0 / 72</span></div></div></div>
     <div id="skills-bar" class="skills-bar"></div>
     <div id="choices" class="choices hidden"></div>
     <div class="world-toast hidden" id="world-toast"></div>
@@ -34,6 +34,6 @@
  </main>
  <footer class="page-footer"><span>EMBERFALL <b>©</b> 2026</span><span>每一次陨落，都是下一次觉醒的开始。</span><span>像素肉鸽 · 生存竞技</span></footer>
 </div>
-<div class="help-overlay hidden" id="help-overlay"><div class="help-dialog"><button id="close-help" class="close-button" aria-label="关闭指南">×</button><span class="eyebrow">A TRAVELER’S HANDBOOK</span><h2>生存，从一束微光开始</h2><div class="help-grid"><article><b>01</b><h3>探索与发育</h3><p>移动躲避怪物，自动攻击附近敌人。拾取翠绿经验晶体升级，注意地刺闪烁预警和减速泥潭。</p></article><article><b>02</b><h3>构筑你的力量</h3><p>在 3、5、7、9 级获得随机三选一。学习技能或强化属性。选择时世界不会暂停，保持走位！Q/E/R 释放主动技能，鼠标指向目标。</p></article><article><b>03</b><h3>争夺与决战</h3><p>90 秒后允许互相攻击。争夺期旅者护甲较强，决战时减伤降低。任意旅者到达 10 级即停止刷怪与补充地图经验，10 秒后开始围绕随机圆心缩圈，圈外持续扣血。</p></article><article><b>04</b><h3>最后一位旅者</h3><p>击败对手，成为最后的幸存者。死亡后可以观战或重新开始。Esc 暂停，切换标签页也会暂停。每局重新成长。技能面板为基础伤害，旅者护甲会减免伤害。</p></article></div><button id="help-done" class="primary-button">我准备好了 <span>→</span></button></div></div>
+<div class="help-overlay hidden" id="help-overlay"><div class="help-dialog"><button id="close-help" class="close-button" aria-label="关闭指南">×</button><span class="eyebrow">A TRAVELER’S HANDBOOK</span><h2>生存，从一束微光开始</h2><div class="help-grid"><article><b>01</b><h3>探索与发育</h3><p>移动躲避怪物，自动攻击附近敌人。击败怪物、旅者或拾取翠绿晶体获得经验，注意地刺闪烁预警和减速泥潭。</p></article><article><b>02</b><h3>构筑你的力量</h3><p>在 2、4、6、8、10、12、14、15 级获得随机三选一。每级增加生命与攻击，主动技能最多三个。可学习技能或强化已有技能。选择时世界不会暂停，保持走位！Q/E/R 释放主动技能，鼠标指向目标。</p></article><article><b>03</b><h3>争夺与决战</h3><p>90 秒后允许互相攻击。争夺期旅者护甲较强，决战时减伤降低。任意旅者到达 15 级即停止刷怪与补充地图经验，10 秒后开始围绕随机圆心缩圈，圈外持续扣血。</p></article><article><b>04</b><h3>最后一位旅者</h3><p>击败对手，成为最后的幸存者。死亡后可以观战或重新开始。Esc 暂停，切换标签页也会暂停。每局重新成长。技能面板为基础伤害，旅者护甲会减免伤害。</p></article></div><button id="help-done" class="primary-button">我准备好了 <span>→</span></button></div></div>
 <script type="module" src="js/app.js"></script>
 </body></html>

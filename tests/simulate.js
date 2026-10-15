@@ -1,4 +1,4 @@
-import { createGame, stepGame } from '../dist/js/simulation.js';
+import { CONFIG, createGame, stepGame } from '../dist/js/simulation.js';
 
 const SIM_HZ = Math.max(1, Number(process.env.SIM_HZ) || 30);
 const DT = 1 / SIM_HZ;
@@ -37,7 +37,7 @@ function rowFor(seed) {
         });
       }
     }
-    if (firstMaxLevelAt === null && actors.some(actor => actor.level >= 10)) firstMaxLevelAt = game.time;
+    if (firstMaxLevelAt === null && actors.some(actor => actor.level >= CONFIG.maxLevel)) firstMaxLevelAt = game.time;
     if (finaleAt === null && game.phase === 'finale') {
       finaleAt = game.time;
       finaleMonsterSpawns = game.spawnCount;
@@ -63,7 +63,7 @@ function rowFor(seed) {
     livingAtEnd: actorsOf(game).filter(actor => actor.alive).length,
     deathCounts,
     deaths,
-    firstLevel10Seconds: firstMaxLevelAt,
+    firstMaxLevelSeconds: firstMaxLevelAt,
     finaleSeconds: finaleAt,
     reachedTarget: Boolean(game.result && game.result.time >= 8 * 60 && game.result.time <= 12 * 60),
     bugs: [...bugs],
@@ -71,14 +71,14 @@ function rowFor(seed) {
 }
 
 const rows = SEEDS.map(rowFor);
-console.table(rows.map(({ seed, hz, endSeconds, winner, livingAtEnd, firstLevel10Seconds, finaleSeconds, reachedTarget, deathCounts, bugs }) => ({
+console.table(rows.map(({ seed, hz, endSeconds, winner, livingAtEnd, firstMaxLevelSeconds, finaleSeconds, reachedTarget, deathCounts, bugs }) => ({
   seed,
   hz,
   end: `${Number(endSeconds).toFixed(1)}s`,
   winner,
   living: livingAtEnd,
   deaths: `A${deathCounts.actor}/M${deathCounts.monster}/T${deathCounts.trap}/Z${deathCounts.zone}/?${deathCounts.unknown}`,
-  first10: firstLevel10Seconds === null ? '—' : `${firstLevel10Seconds.toFixed(1)}s`,
+  firstMax: firstMaxLevelSeconds === null ? '—' : `${firstMaxLevelSeconds.toFixed(1)}s`,
   finale: finaleSeconds === null ? '—' : `${finaleSeconds.toFixed(1)}s`,
   "8to12min": reachedTarget,
   bugs: bugs.length ? bugs.join('; ') : 'none',

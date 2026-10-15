@@ -1,13 +1,13 @@
 import {generateMap,rngFromSeed,randomFree,moveEntity,blocked} from './world.js';
-import {createActor,updateCombat,castSkill,damage} from './combat.js';
+import {createActor,updateCombat,castSkill,damage,PROGRESSION} from './combat.js';
 import {think} from './ai.js';
 
-export const CONFIG={simulationHz:60,grace:90,maxLevel:10,warning:10,shrinkDuration:180,monsterCap:52,monsterInterval:3.2,gemInterval:7};
+export const CONFIG={simulationHz:60,grace:90,pvpNotice:10,maxLevel:PROGRESSION.maxLevel,warning:10,shrinkDuration:180,monsterCap:52,monsterInterval:3.2,gemInterval:7,mapGemXp:5,monsterXp:15,bruteXp:25};
 const names=['你','苔痕','鸦羽','夜行者','烛影','赤砂','雾凇','游隼'];
 const colors=['#f2be65','#7bc796','#aa9de6','#6bb8dc','#e39ca4','#df9764','#9ccec6','#c7c28a'];
 export function createGame(seed=Date.now()){
   const map=generateMap(seed),rng=rngFromSeed(seed);
-  const game={seed,map,rng,time:0,phase:'grace',actors:[],monsters:[],gems:[],bullets:[],effects:[],events:[],zone:null,result:null,paused:false,nextId:100,spawnTimer:0,gemTimer:0,spawnCount:0,gemSpawnCount:0};
+  const game={seed,map,rng,time:0,phase:'grace',actors:[],monsters:[],gems:[],bullets:[],effects:[],events:[],zone:null,result:null,paused:false,pvpNoticeSent:false,nextId:100,spawnTimer:0,gemTimer:0,spawnCount:0,gemSpawnCount:0};
   game.actors=map.spawnPoints.map((p,i)=>createActor('a'+i,names[i],p.x,p.y,i===0,colors[i]));
   for(let i=0;i<72;i++)spawnGem(game);
   for(let i=0;i<24;i++)spawnMonster(game);
@@ -16,7 +16,7 @@ export function createGame(seed=Date.now()){
 }
 export function spawnGem(game){
   if(game.phase==='finale'||game.result)return null;
-  const p=randomFree(game.map,game.rng,24);const gem={id:game.nextId++,...p,value:4,kind:'xp'};game.gems.push(gem);game.gemSpawnCount++;return gem;
+  const p=randomFree(game.map,game.rng,24);const gem={id:game.nextId++,...p,value:CONFIG.mapGemXp,kind:'xp'};game.gems.push(gem);game.gemSpawnCount++;return gem;
 }
 export function spawnMonster(game){
   if(game.phase==='finale'||game.result||game.monsters.filter(m=>m.alive).length>=CONFIG.monsterCap)return null;
@@ -24,7 +24,7 @@ export function spawnMonster(game){
   for(let i=0;i<20&&game.actors.some(a=>a.alive&&Math.hypot(a.x-p.x,a.y-p.y)<180);i++)p=randomFree(game.map,game.rng,30);
   const tier=game.time>170&&game.rng()<.24?'brute':game.rng()<.28?'bat':'slime';
   const health=tier==='brute'?80:tier==='bat'?26:40;
-  const m={id:game.nextId++,...p,radius:tier==='brute'?15:10,type:tier,hp:health,maxHp:health,speed:tier==='bat'?69:tier==='brute'?35:44,damage:tier==='brute'?12:6,attackTimer:0,alive:true,xp:tier==='brute'?20:12};game.monsters.push(m);game.spawnCount++;return m;
+  const m={id:game.nextId++,...p,radius:tier==='brute'?15:10,type:tier,hp:health,maxHp:health,speed:tier==='bat'?69:tier==='brute'?35:44,damage:tier==='brute'?12:6,attackTimer:0,alive:true,xp:tier==='brute'?CONFIG.bruteXp:CONFIG.monsterXp};game.monsters.push(m);game.spawnCount++;return m;
 }
 export function startFinale(game){
   if(game.phase==='finale'||game.result)return;
@@ -41,6 +41,7 @@ export function stepGame(game,dt,input={}){
   for(const e of [...game.actors,...game.monsters,...game.bullets]){e.prevX=e.x;e.prevY=e.y;}
   game.time+=dt;
   if(game.phase!=='finale'&&game.actors.some(a=>a.alive&&a.level>=CONFIG.maxLevel))startFinale(game);
+  if(game.phase==='grace'&&!game.pvpNoticeSent&&game.time>=CONFIG.grace-CONFIG.pvpNotice&&game.time<CONFIG.grace){game.pvpNoticeSent=true;game.events.push({text:`全场公告：${Math.ceil(CONFIG.grace-game.time)} 秒后解除保护，旅者可互相攻击！`,time:game.time,color:'#edbd81'});}
   if(game.phase==='grace'&&game.time>=CONFIG.grace){game.phase='hunt';game.events.push({text:'保护结束 · 狩猎开始',time:game.time,color:'#e78877'});}
   for(const a of game.actors){
     if(!a.alive)continue;

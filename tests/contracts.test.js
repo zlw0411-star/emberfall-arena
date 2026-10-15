@@ -7,8 +7,8 @@ import { think } from '../dist/js/ai.js';
 import * as simulation from '../dist/js/simulation.js';
 
 const { rngFromSeed, generateMap, blocked } = world;
-const { createActor, addXp, xpNeeded, getChoices, chooseSkill, castSkill, updateCombat, damage } = combat;
-const { createGame, stepGame, startFinale } = simulation;
+const { PROGRESSION, COMBAT_BALANCE, SKILLS, createActor, addXp, xpNeeded, getChoices, chooseSkill, castSkill, updateCombat, damage } = combat;
+const { CONFIG, createGame, stepGame, startFinale } = simulation;
 
 function actorsOf(game) {
   return game.actors ?? [];
@@ -166,6 +166,54 @@ test('actor protection blocks friendly damage for 90 seconds and expires afterwa
   assert.ok(target.hp < hp, 'friendly damage remained blocked after protection');
 });
 
+test('PvP release notice warns once from ten seconds before grace ends, respects pause, and resets on replay', () => {
+  const game = createGame('pvp-notice-contract');
+  const [target, source] = actorsOf(game);
+  const noticeText = '全场公告：10 秒后解除保护，旅者可互相攻击！';
+  const notices = () => game.events.filter(event => event.text === noticeText);
+  const noticeAt = CONFIG.grace - CONFIG.pvpNotice;
+
+  game.time = noticeAt - 0.1;
+  stepGame(game, 1 / 30, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(notices().length, 0, 'notice appeared before the 10-second window');
+  assert.equal(game.pvpNoticeSent, false);
+
+  stepGame(game, 0.11, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(game.time >= noticeAt, true);
+  assert.equal(notices().length, 1, 'notice did not appear when the warning window opened');
+  assert.equal(game.pvpNoticeSent, true);
+  const noticeTime = game.time;
+  for (let i = 0; i < 5; i++) stepGame(game, 1 / 30, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(notices().length, 1, 'notice repeated on subsequent simulation ticks');
+
+  game.paused = true;
+  const pausedTime = game.time;
+  const pausedCountdown = CONFIG.grace - game.time;
+  stepGame(game, 2, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(game.time, pausedTime, 'paused simulation advanced the warning countdown');
+  assert.equal(CONFIG.grace - game.time, pausedCountdown);
+  assert.equal(notices().length, 1);
+  game.paused = false;
+
+  game.time = CONFIG.grace - 0.1;
+  stepGame(game, 0.05, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(game.phase, 'grace', 'protection ended before its full duration');
+  const protectedHp = target.hp;
+  damage(game, target, 100, source);
+  assert.equal(target.hp, protectedHp, 'mutual damage landed before grace ended');
+  stepGame(game, 0.1, { autoPlayer: false, mx: 0, my: 0 });
+  assert.equal(game.phase, 'hunt', 'protection did not end at its configured duration');
+  const openHp = target.hp;
+  damage(game, target, 10, source);
+  assert.ok(target.hp < openHp, 'mutual damage remained blocked after grace ended');
+  assert.equal(notices().length, 1, 'notice repeated when protection ended');
+  assert.ok(noticeTime < CONFIG.grace);
+
+  const replay = createGame('pvp-notice-contract-replay');
+  assert.equal(replay.pvpNoticeSent, false, 'new game inherited the previous notice state');
+  assert.equal(replay.events.some(event => event.text === noticeText), false, 'new game inherited the previous notice event');
+});
+
 test('actor damage uses reduced hunt and finale multipliers and records its cause', () => {
   for (const [phase, expected] of [['hunt', 0.12], ['finale', 0.32]]) {
     const target = createActor(`${phase}-target`, 'Target', 100, 100, true);
@@ -179,38 +227,124 @@ test('actor damage uses reduced hunt and finale multipliers and records its caus
   }
 });
 
-test('XP choice milestones are only levels 3, 5, 7, and 9; queued choices consume one at a time', () => {
-  assert.equal(typeof xpNeeded, 'function');
+test('progression grants one choice at each exported milestone and consumes queued choices one at a time', () => {
+  assert.equal(PROGRESSION.maxLevel, 15);
+  assert.deepEqual(PROGRESSION.milestones, [2, 4, 6, 8, 10, 12, 14, 15]);
+  assert.equal(PROGRESSION.milestones.length, 8);
+  assert.equal(PROGRESSION.maxActiveSkills, 3);
   const actor = createActor('milestones', 'Milestones', 100, 100, true, '#fff');
   const observed = [];
-  for (let level = 1; level < 10; level++) {
-    addXp({ actors: [actor], time: 0 }, actor, xpNeeded(level));
+  const game = { actors: [actor], time: 0, events: [], effects: [], rng: () => 0 };
+  for (let level = 1; level < PROGRESSION.maxLevel; level++) {
+    const gained = addXp(game, actor, xpNeeded(level));
+    assert.equal(gained, 1, `XP threshold did not advance level ${level}`);
     if (actor.pendingChoices > 0) observed.push(actor.level);
-    if ([3, 5, 7, 9].includes(actor.level)) {
+    if (PROGRESSION.milestones.includes(actor.level)) {
       assert.equal(actor.pendingChoices, 1, `level ${actor.level} should add one choice`);
-      getChoices({ actors: [actor], time: 0 }, actor);
+      getChoices(game, actor);
       assert.equal(actor.choices.length, 3);
       const chosen = actor.choices[0];
-      assert.equal(chooseSkill({ actors: [actor], time: 0 }, actor, chosen), true);
+      assert.equal(chooseSkill(game, actor, chosen), true);
       assert.equal(actor.pendingChoices, 0);
     } else {
       assert.equal(actor.pendingChoices, 0, `unexpected choice at level ${actor.level}`);
     }
   }
-  assert.deepEqual(observed, [3, 5, 7, 9]);
+  assert.deepEqual(observed, PROGRESSION.milestones);
+  assert.equal(actor.level, PROGRESSION.maxLevel);
 
   const queued = createActor('queued', 'Queued', 100, 100, true, '#fff');
-  const game = { actors: [queued], time: 0 };
-  addXp(game, queued, xpNeeded(1) + xpNeeded(2) + xpNeeded(3) + xpNeeded(4) + xpNeeded(5));
-  assert.equal(queued.level, 6);
-  assert.equal(queued.pendingChoices, 2);
-  const firstChoice = getChoices(game, queued)[0];
-  assert.equal(chooseSkill(game, queued, firstChoice), true);
-  assert.equal(queued.pendingChoices, 1);
-  assert.equal(queued.choices.length, 3, 'second queued selection should be presented immediately');
-  const secondChoice = queued.choices[0];
-  assert.equal(chooseSkill(game, queued, secondChoice), true);
+  const queuedGame = { actors: [queued], time: 0, events: [], effects: [], rng: () => 0 };
+  const queueThrough = PROGRESSION.milestones[3];
+  const requiredXp = Array.from({ length: queueThrough - 1 }, (_, i) => xpNeeded(i + 1)).reduce((sum, value) => sum + value, 0);
+  addXp(queuedGame, queued, requiredXp);
+  assert.equal(queued.level, queueThrough);
+  const totalQueuedChoices = PROGRESSION.milestones.filter(level => level <= queueThrough).length;
+  assert.equal(queued.pendingChoices, totalQueuedChoices);
+  let consumedChoices = 0;
+  while (queued.pendingChoices > 0) {
+    const options = getChoices(queuedGame, queued);
+    assert.equal(options.length, 3);
+    assert.equal(chooseSkill(queuedGame, queued, options[0]), true);
+    consumedChoices++;
+    assert.equal(queued.pendingChoices, totalQueuedChoices - consumedChoices);
+  }
   assert.equal(queued.pendingChoices, 0);
+});
+
+test('level HP and attack damage grow linearly from their exported base values', () => {
+  const actor = createActor('growth', 'Growth', 100, 100, true, '#fff');
+  const game = { actors: [actor], time: 0, events: [], effects: [], rng: () => 0 };
+  const hp = [actor.maxHp];
+  const attack = [actor.attackDamage];
+  for (let level = 1; level < PROGRESSION.maxLevel; level++) {
+    addXp(game, actor, xpNeeded(level));
+    hp.push(actor.maxHp);
+    attack.push(actor.attackDamage);
+  }
+  const hpSteps = hp.slice(1).map((value, i) => value - hp[i]);
+  const attackSteps = attack.slice(1).map((value, i) => value - attack[i]);
+  assert.ok(hpSteps[0] > 0 && hpSteps.every(step => Math.abs(step - hpSteps[0]) < 1e-9));
+  assert.ok(attackSteps[0] > 0 && attackSteps.every(step => Math.abs(step - attackSteps[0]) < 1e-9));
+  assert.equal(actor.level, PROGRESSION.maxLevel);
+  assert.equal(actor.hp, actor.maxHp);
+  const pending = actor.pendingChoices;
+  addXp(game, actor, xpNeeded(PROGRESSION.maxLevel) * 100);
+  assert.equal(actor.level, PROGRESSION.maxLevel);
+  assert.equal(actor.xp, 0, 'max-level XP overflow was retained');
+  assert.equal(actor.pendingChoices, pending, 'max level granted another choice');
+});
+
+test('active skill selection is capped by the exported progression limit', () => {
+  const actor = createActor('active-cap', 'Active Cap', 100, 100, true, '#fff');
+  const game = { actors: [actor], time: 0, events: [], effects: [], rng: () => 0 };
+  const activeIds = Object.keys(SKILLS).filter(id => SKILLS[id].type === 'active');
+  for (const skillId of activeIds.slice(0, PROGRESSION.maxActiveSkills)) {
+    actor.pendingChoices = 1;
+    actor.choices = [skillId];
+    assert.equal(chooseSkill(game, actor, skillId), true);
+    assert.ok(actor.activeSkills.length <= PROGRESSION.maxActiveSkills);
+  }
+  const rejectedSkill = activeIds[PROGRESSION.maxActiveSkills];
+  assert.equal(actor.activeSkills.length, PROGRESSION.maxActiveSkills);
+  if (rejectedSkill) {
+    actor.pendingChoices = 1;
+    actor.choices = [rejectedSkill];
+    assert.equal(chooseSkill(game, actor, rejectedSkill), false);
+    assert.equal(actor.skills[rejectedSkill] || 0, 0);
+  }
+});
+
+test('PvP rewards apply once on a real first death and exclude self/environment kills', () => {
+  const attacker = createActor('reward-attacker', 'Attacker', 100, 100, true, '#fff');
+  const victim = createActor('reward-victim', 'Victim', 200, 100, false, '#fff');
+  victim.level = 4;
+  const game = { actors: [attacker, victim], time: 100, phase: 'hunt', events: [], effects: [], nextId: 1 };
+  const expectedXp = COMBAT_BALANCE.actorKillXpBase + victim.level * COMBAT_BALANCE.actorKillXpPerLevel;
+  damage(game, victim, victim.hp * 100, attacker);
+  assert.equal(victim.alive, false);
+  assert.equal(attacker.kills, 1);
+  assert.equal(attacker.xp, expectedXp);
+  assert.equal(victim.monsterKills, 0);
+  damage(game, victim, victim.hp * 100, attacker);
+  assert.equal(attacker.kills, 1, 'dead victim awarded a repeated kill');
+  assert.equal(attacker.xp, expectedXp, 'dead victim awarded repeated XP');
+
+  const selfVictim = createActor('self', 'Self', 300, 100, true, '#fff');
+  const environmentVictim = createActor('environment', 'Environment', 400, 100, false, '#fff');
+  game.actors.push(selfVictim, environmentVictim);
+  damage(game, selfVictim, selfVictim.hp * 100, selfVictim);
+  damage(game, environmentVictim, environmentVictim.hp * 100, null);
+  assert.equal(attacker.xp, expectedXp, 'self/environment deaths awarded PvP XP');
+  assert.equal(attacker.kills, 1, 'self/environment death credited a PvP kill');
+
+  const maxed = createActor('maxed', 'Maxed', 500, 100, false, '#fff');
+  const maxVictim = createActor('max-victim', 'Max Victim', 600, 100, false, '#fff');
+  maxed.level = PROGRESSION.maxLevel;
+  maxed.xp = 0;
+  game.actors.push(maxed, maxVictim);
+  damage(game, maxVictim, maxVictim.hp * 100, maxed);
+  assert.equal(maxed.xp, 0, 'max-level actor retained overflow PvP XP');
 });
 
 test('skill selections do not pause simulation and a pending choice does not prevent death', () => {
@@ -276,11 +410,12 @@ test('dash moves the actor and stops at a wall', () => {
   assert.ok(actor.x + actor.radius <= 140, `dash crossed wall (x=${actor.x})`);
 });
 
-test('first level-10 actor starts one finale and disables later mob and crystal spawns', () => {
+test('a max-level player or AI starts one finale and disables later mob and crystal spawns', () => {
   const game = createGame('finale-once-contract');
+  assert.equal(CONFIG.maxLevel, PROGRESSION.maxLevel);
   const player = playerOf(game);
   assert.ok(player);
-  player.level = 10;
+  player.level = PROGRESSION.maxLevel;
   stepGame(game, 1 / 30, { autoPlayer: false, mx: 0, my: 0 });
   assert.equal(game.phase, 'finale', 'a player reaching max level did not start the finale');
   const startTime = game.time;
@@ -305,9 +440,9 @@ test('first level-10 actor starts one finale and disables later mob and crystal 
   assert.equal(game.spawnCount, spawnedMonsters, 'monster spawn counter advanced during finale');
   assert.equal(game.gemSpawnCount, spawnedGems, 'crystal spawn counter advanced during finale');
 
-  const aiGame = createGame('ai-level10-contract');
+  const aiGame = createGame('ai-maxlevel-contract');
   const bot = actorsOf(aiGame).find(actor => !actor.isPlayer);
-  bot.level = 10;
+  bot.level = PROGRESSION.maxLevel;
   stepGame(aiGame, 1 / 30, { autoPlayer: true });
   assert.equal(aiGame.phase, 'finale', 'an AI reaching max level did not start the finale');
 });

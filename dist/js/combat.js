@@ -4,30 +4,39 @@ export const SKILLS = {
   fireball: { name: '火球', description: '每级伤害36→63，爆炸半径56→80，冷却3.86→2.86秒（共4级）', icon: '●', color: '#ff8a42', type: 'active', maxRank: 4, cooldown: 4.2 },
   dash: { name: '震荡冲刺', description: '冲刺112→148像素；冲击伤害31→55、半径47→62（共4级）', icon: '➤', color: '#67e8f9', type: 'active', maxRank: 4, cooldown: 6.5 },
   quake: { name: '震荡波', description: '范围伤害29→56、半径103→154（共4级）', icon: '◎', color: '#c084fc', type: 'active', maxRank: 4, cooldown: 8 },
-  power: { name: '强力弹丸', description: '每级所有攻击伤害+17%，最多+85%', icon: '✦', color: '#fb7185', type: 'passive', maxRank: 5, cooldown: 0 },
+  power: { name: '强力弹丸', description: '每级所有攻击伤害+10%，最多+50%', icon: '✦', color: '#fb7185', type: 'passive', maxRank: 5, cooldown: 0 },
   haste: { name: '迅捷', description: '每级移速+8%、攻击间隔缩短6.5%，最多移速+40%', icon: '»', color: '#facc15', type: 'passive', maxRank: 5, cooldown: 0 },
   vitality: { name: '坚韧', description: '每级最大生命+30并立即恢复30；每2.5秒恢复0.57→1.45生命', icon: '♥', color: '#4ade80', type: 'passive', maxRank: 5, cooldown: 0 },
   magnet: { name: '拾荒者', description: '每级拾取半径+18像素，从30扩大到120', icon: '✧', color: '#60a5fa', type: 'passive', maxRank: 5, cooldown: 0 },
   multishot: { name: '连射', description: '每级攻击间隔缩短5.5%、弹速+18；4级起每次攻击额外发射1枚弹丸', icon: '⁝', color: '#f0abfc', type: 'passive', maxRank: 5, cooldown: 0 },
 };
 
+export const PROGRESSION = Object.freeze({
+  maxLevel: 15,
+  milestones: Object.freeze([2, 4, 6, 8, 10, 12, 14, 15]),
+  maxActiveSkills: 3,
+});
+
 export const COMBAT_BALANCE = Object.freeze({
   actorDamageMultiplier: 0.32,
   huntDamageMultiplier: 0.12,
   finaleDamageMultiplier: 0.32,
-  xpThresholdMultiplier: 1.6,
+  xpThresholdMultiplier: 1.1,
   baseMaxHp: 280,
-  levelMaxHp: 12,
-  levelHeal: 12,
+  levelMaxHp: 8,
+  levelHeal: 8,
+  baseAttackDamage: 13,
+  levelAttackDamage: 0.4,
+  powerDamagePerRank: 0.1,
+  actorKillXpBase: 40,
+  actorKillXpPerLevel: 5,
   vitalityMaxHp: 30,
   vitalityHeal: 30,
   healingGemValue: 40,
 });
 
-const MILESTONES = new Set([3, 5, 7, 9]);
-const MAX_LEVEL = 10;
-const ACTIVE_IDS = Object.keys(SKILLS).filter(id => SKILLS[id].type === 'active');
-const PASSIVE_IDS = Object.keys(SKILLS).filter(id => SKILLS[id].type === 'passive');
+const MILESTONES = new Set(PROGRESSION.milestones);
+const MAX_LEVEL = PROGRESSION.maxLevel;
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const hypot = (x, y) => Math.hypot(x, y) || 1;
 const actorList = game => Array.isArray(game?.actors) ? game.actors : [];
@@ -39,7 +48,7 @@ export function createActor(id, name, x, y, isPlayer = false, color = '#74d680')
   return {
     id, name, x, y, radius: 12, isPlayer, color, alive: true,
     hp: COMBAT_BALANCE.baseMaxHp, maxHp: COMBAT_BALANCE.baseMaxHp, level: 1, xp: 0, kills: 0, monsterKills: 0, damageDealt: 0,
-    speed: 100, attackDamage: 13, attackInterval: 0.88, attackRange: 220,
+    speed: 100, attackDamage: COMBAT_BALANCE.baseAttackDamage, attackInterval: 0.88, attackRange: 220,
     attackTimer: 0.18, pickupRadius: 30,
     skills: {}, activeSkills: [], cooldowns: {}, pendingChoices: 0, choices: [],
     regenTimer: 0, hitFlash: 0, combatSpeedMult: 1, speedBoostT: 0,
@@ -51,7 +60,7 @@ export function createActor(id, name, x, y, isPlayer = false, color = '#74d680')
 // XP required to advance from the supplied current level to the next one.
 export function xpNeeded(level) {
   const lv = clamp(Math.floor(Number(level) || 1), 1, MAX_LEVEL);
-  return Math.round((55 + (lv - 1) * 10) * COMBAT_BALANCE.xpThresholdMultiplier);
+  return Math.round((65 + (lv - 1) * 12) * COMBAT_BALANCE.xpThresholdMultiplier);
 }
 
 export function addXp(game, actor, amount) {
@@ -64,9 +73,10 @@ export function addXp(game, actor, amount) {
     gained++;
     actor.maxHp = levelMaxHp(actor.level) + (actor.skills?.vitality || 0) * COMBAT_BALANCE.vitalityMaxHp;
     actor.hp = Math.min(actor.maxHp, actor.hp + COMBAT_BALANCE.levelHeal);
+    // Recompute from the base so repeated XP grants cannot compound the level bonus.
+    actor.attackDamage = COMBAT_BALANCE.baseAttackDamage + (actor.level - 1) * COMBAT_BALANCE.levelAttackDamage;
     if (MILESTONES.has(actor.level)) actor.pendingChoices = (actor.pendingChoices || 0) + 1;
-    pushEffect(game, { x: actor.x, y: actor.y - 20, kind: 'text', text: `等级 ${actor.level} · 生命+${COMBAT_BALANCE.levelHeal}`, color: '#ffe67a', ttl: 1.3 });
-    pushEvent(game, `${actor.name || '战士'} 达到 Lv.${actor.level}（最大生命+${COMBAT_BALANCE.levelMaxHp}，恢复${COMBAT_BALANCE.levelHeal}）`, '#ffe67a');
+    pushEffect(game, { x: actor.x, y: actor.y - 20, kind: 'text', text: `Lv.${actor.level} 生命+${COMBAT_BALANCE.levelMaxHp} 攻击+${COMBAT_BALANCE.levelAttackDamage}`, color: '#ffe67a', ttl: 1.3 });
   }
   if (actor.level >= MAX_LEVEL) actor.xp = 0;
   if (actor.pendingChoices > 0 && actor.isPlayer !== true) autoChoose(game, actor);
@@ -75,7 +85,7 @@ export function addXp(game, actor, amount) {
 
 export function getChoices(game, actor) {
   if (!alive(actor) || !(actor.pendingChoices > 0)) return [];
-  const available = Object.keys(SKILLS).filter(id => (actor.skills?.[id] || 0) < SKILLS[id].maxRank);
+  const available = Object.keys(SKILLS).filter(id => (actor.skills?.[id] || 0) < SKILLS[id].maxRank && canLearnSkill(actor, id));
   if (!available.length) {
     actor.pendingChoices = 0;
     actor.choices = [];
@@ -96,7 +106,7 @@ export function chooseSkill(game, actor, skillId) {
   if (!alive(actor) || !(actor.pendingChoices > 0) || !Object.hasOwn(SKILLS, skillId)) return false;
   let choices = actor.choices;
   if (!Array.isArray(choices) || !choices.length) choices = getChoices(game, actor);
-  if (!choices.includes(skillId) || (actor.skills?.[skillId] || 0) >= SKILLS[skillId].maxRank) return false;
+  if (!choices.includes(skillId) || (actor.skills?.[skillId] || 0) >= SKILLS[skillId].maxRank || !canLearnSkill(actor, skillId)) return false;
   applySkillRank(actor, skillId);
   actor.pendingChoices--;
   actor.choices = actor.pendingChoices > 0 ? getChoices(game, actor) : [];
@@ -134,11 +144,11 @@ function autoChoose(game, actor) {
 }
 
 export function castSkill(game, actor, slot, aimX, aimY) {
-  if (!alive(actor)) return false;
+  if (!alive(actor) || !Number.isInteger(slot) || slot < 0 || slot >= PROGRESSION.maxActiveSkills) return false;
   const skillId = actor.activeSkills?.[slot];
-  if (!skillId || !SKILLS[skillId] || (actor.cooldowns?.[skillId] || 0) > 0) return false;
+  if (!skillId || SKILLS[skillId]?.type !== 'active' || (actor.cooldowns?.[skillId] || 0) > 0) return false;
   const rank = actor.skills?.[skillId] || 0;
-  if (!rank) return false;
+  if (!Number.isInteger(rank) || rank < 1 || rank > SKILLS[skillId].maxRank) return false;
   actor.cooldowns ||= {};
   actor.cooldowns[skillId] = SKILLS[skillId].cooldown * (skillId === 'fireball' ? Math.max(0.58, 1 - rank * 0.08) : Math.max(0.64, 1 - rank * 0.06));
   const dx = (aimX ?? actor.x + 1) - actor.x;
@@ -191,7 +201,12 @@ export function damage(game, target, amount, source = null) {
     if (isActor(game, target)) {
       target.pendingChoices = 0;
       target.choices = [];
-      if (sourceActor && sourceActor !== target) sourceActor.kills = (sourceActor.kills || 0) + 1;
+      if (sourceActor && sourceActor !== target && actorList(game).includes(sourceActor)) {
+        sourceActor.kills = (sourceActor.kills || 0) + 1;
+        // Award only on this live -> dead transition, to the actor that dealt the lethal hit.
+        const defeatedLevel = clamp(Math.floor(Number(target.level) || 1), 1, MAX_LEVEL);
+        addXp(game, sourceActor, COMBAT_BALANCE.actorKillXpBase + defeatedLevel * COMBAT_BALANCE.actorKillXpPerLevel);
+      }
       const cause = damageCauseLabel(damageKind, sourceActor, source);
       pushEvent(game, `${target.name || '战士'} 倒下了（${cause}）`, '#ff716d');
     } else {
@@ -393,7 +408,11 @@ function dropGem(game, monster, value) {
   if (monster.type === 'brute' && (game.rng || Math.random)() < 0.28) game.gems.push({ id: game.nextId++, x: monster.x + 8, y: monster.y, value: COMBAT_BALANCE.healingGemValue, kind: 'heal', radius: 6, ttl: 45 });
 }
 
-function scaledDamage(actor, amount) { return amount * (1 + (actor?.skills?.power || 0) * 0.17); }
+function canLearnSkill(actor, skillId) {
+  return SKILLS[skillId].type !== 'active' || actor.activeSkills?.includes(skillId)
+    || (actor.activeSkills?.length || 0) < PROGRESSION.maxActiveSkills;
+}
+function scaledDamage(actor, amount) { return amount * (1 + Math.min(SKILLS.power.maxRank, actor?.skills?.power || 0) * COMBAT_BALANCE.powerDamagePerRank); }
 function levelMaxHp(level) { return COMBAT_BALANCE.baseMaxHp + (level - 1) * COMBAT_BALANCE.levelMaxHp; }
 function classifyDamage(game, target, sourceActor, source) {
   if (sourceActor) return 'actor';
