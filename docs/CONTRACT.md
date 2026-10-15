@@ -1,0 +1,22 @@
+# Shared implementation contract
+
+Browser native ES modules in dist/js. No external dependencies. Pure simulation importable by Node. All coordinates in world pixels, seconds for time; browser simulation fixed dt=1/60, RAF interpolation follows screen refresh. Headless rule simulations may use dt=1/30. Previous entity coordinates prevX/prevY support renderer interpolation.
+
+## World (world.js, owned by map agent)
+Exports rngFromSeed(seed)->function random in [0,1), generateMap(seed)->map, randomFree(map,rng,padding=24)->{x,y}, blocked(map,x,y,radius=12)->boolean, moveEntity(map,entity,dx,dy) mutates x/y with collision, lineClear(map,a,b)->boolean. map={width:2048,height:2048,tileSize:32,obstacles:[{x,y,w,h,kind}],traps:[{x,y,r,type:'spike'|'mud',offset}],spawnPoints:[8 {x,y}],freePoints:[{x,y}],seed}. Ensure radius 16 reachable connected ground, final center clear radius 100. Objects are solid rectangles. World generation deterministic. moveEntity uses entity.radius default12.
+
+## AI (ai.js, owned by map agent)
+Export think(game,actor,dt)->{mx,my,aimX,aimY,castSlot}; mx/my normalized movement, castSlot=-1 or active slot index. actor.ai can store routing state. game={map,rng,time,phase:'grace'|'hunt'|'finale',actors,monsters,gems,zone:null|{x,y,radius,initialRadius,startedAt},...}. Escape circle, avoid active spike (period4, active phase>=2.8), seek xp, hunt, retreat. Uses world helpers. No combat import (avoid cycle). Actors have activeSkills string array, skills object, cooldowns object.
+
+## Combat (combat.js, owned by combat agent)
+Exports SKILLS object keyed id {name,description,icon,color,type:'active'|'passive',maxRank,cooldown}, createActor(id,name,x,y,isPlayer,color), addXp(game,actor,amount), getChoices(game,actor)->skill id[3], chooseSkill(game,actor,skillId)->boolean, castSkill(game,actor,slot,aimX,aimY)->boolean, updateCombat(game,dt), damage(game,target,amount,source=null).
+Actor={id,name,x,y,radius:12,isPlayer,color,alive:true,hp,maxHp,level:1,xp:0,kills:0,monsterKills:0,damageDealt:0,speed,attackDamage,attackInterval,attackRange,attackTimer,pickupRadius,skills:{},activeSkills:[],cooldowns:{},pendingChoices:0,choices:[],...}. XP threshold export xpNeeded(level), max10 and choices only3/5/7/9. getChoices may populate choices. chooseSkill consumes one pending choice and refreshes if queued. AI auto chooses in updateCombat. No global pause ever in skill logic.
+updateCombat handles actor cooldowns/autoattack, monster movement/melee, bullets, gem pickups, traps, hp regeneration, transient effects. It does NOT advance game.time, phase/zone, endgame, spawn monsters, or move actors. All spawns core-owned.
+Monster={id,x,y,radius:11,hp,maxHp,speed,damage,attackTimer,alive:true,type:'slime'|'bat'|'brute',xp:10}. Gem={id,x,y,value,kind:'xp'|'heal'}. Bullet={x,y,vx,vy,radius,damage,ownerId,ttl,kind,color,...}. May add fields as needed; renderer draws these defensively.
+Effects game.effects entries {x,y,kind:'text'|'burst'|'ring'|'slash',text?,color,ttl,maxTtl?,radius?}. game.events human readable entries {text,time,color?}, capped30; game.nextId integer. Helpers can push there. Killing monster add XP to owner and drops gems. Protection prevents any actor-v-actor damage including skills. Death clears pendingChoices,choices; no resurrection. Mud slow is handled by core using traps; spike damage combat. Traps cycle 4s active at phase>=2.8, warning>=2.1. No object sprites/assets required, root renderer handles.
+
+## Core (simulation.js owned by root)
+Exports CONFIG, createGame(seed), stepGame(game,dt,input={mx:0,my:0,aimX,aimY,castSlot:-1}), startFinale(game), spawnMonster(game). Exposes game on window only via app for QA. game.paused boolean, game.result=null|{winnerId:null|string,time}. Exports setPaused optional. startFinale once when any alive max10; disables future mob/gem spawn, zone safe center, initial radius covers entire map;10s warning+180 shrink. result resolved after all same-tick damage. Live time doesn't advance if paused or finished. Root handles players/bot movement+casts then updateCombat, spawn timers, shrinking circle+damage, result. input can use autoPlayer=true for simulation bots.
+
+## Tests (tests agent)
+Own tests/*.test.js, tests/simulate.js. Node built-in test runner. Test contracts, seeded maps reachability, grace, milestone queued selections, no pause during choice, maxlevel triggers once, no new spawns after finale, safe circle and final resolution. Wait until modules exist then run. Report bugs to owner rather than edit their modules.
