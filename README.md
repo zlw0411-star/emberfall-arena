@@ -30,6 +30,7 @@ npm start
 ```powershell
 npm test
 npm run simulate
+npm run duels
 npm run performance
 ```
 

@@ -132,7 +132,26 @@ test('hunt AI uses nearby actors for combat and retreat without chasing across t
   game.actors = [actor, nearby];
   const retreat = think(game, actor, 1 / 60);
   assert.ok(retreat.mx < 0, 'low-health hunt AI did not retreat from a nearby actor');
-  assert.equal(retreat.castSlot, -1, 'low-health hunt AI kept casting at a nearby actor');
+  assert.equal(retreat.castSlot, 0, 'low-health retreat should still return fire with a ready active skill');
+  assert.equal(retreat.aimX, nearby.x, 'retreating AI should aim its skill at the visible threat');
+});
+
+test('hunt AI retreats before lethal exchanges and aims escape dash along its retreat', () => {
+  const map = { width: 2048, height: 2048, obstacles: [], traps: [] };
+  const actor = createActor('runner', 'Runner', 900, 1024, false);
+  const opponent = createActor('opponent', 'Opponent', 1150, 1024, false);
+  actor.hp = actor.maxHp * 0.55;
+  actor.skills.dash = 1;
+  actor.activeSkills = ['dash'];
+  const game = { map, phase: 'hunt', time: 100, zone: null, actors: [actor, opponent], monsters: [], gems: [] };
+  const escape = think(game, actor, 1 / 60);
+  assert.ok(escape.mx < 0, 'moderately wounded actor did not retreat from a rival');
+  assert.equal(escape.castSlot, 0, 'retreating actor did not use its ready dash');
+  assert.ok(escape.aimX < actor.x, 'escape dash aimed back into the rival');
+  actor.ai = {};
+  game.phase = 'finale';
+  const finalFight = think(game, actor, 1 / 60);
+  assert.ok(finalFight.mx > 0, 'finale actor retreated at the hunt-only threshold');
 });
 
 test('generated maps have legal, connected spawn points and a clear finale center', () => {
@@ -214,8 +233,8 @@ test('PvP release notice warns once from ten seconds before grace ends, respects
   assert.equal(replay.events.some(event => event.text === noticeText), false, 'new game inherited the previous notice event');
 });
 
-test('actor damage uses reduced hunt and finale multipliers and records its cause', () => {
-  for (const [phase, expected] of [['hunt', 0.12], ['finale', 0.32]]) {
+test('actor damage uses exported hunt and finale multipliers and records its cause', () => {
+  for (const [phase, expected] of [['hunt', COMBAT_BALANCE.huntDamageMultiplier], ['finale', COMBAT_BALANCE.finaleDamageMultiplier]]) {
     const target = createActor(`${phase}-target`, 'Target', 100, 100, true);
     const source = createActor(`${phase}-source`, 'Source', 200, 100, false);
     const game = { actors: [target, source], phase, time: 100, effects: [], events: [], nextId: 1 };

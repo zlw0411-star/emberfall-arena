@@ -163,6 +163,10 @@ function getThreats(game, actor) {
   return threats.sort((a, b) => distance(a, actor) - distance(b, actor));
 }
 function lowHealth(actor) { return actor.maxHp > 0 && actor.hp / actor.maxHp < 0.34; }
+function healthRatio(actor) { return actor?.maxHp > 0 ? actor.hp / actor.maxHp : 1; }
+function isActorThreat(game, threat) {
+  return (game.actors || []).some(other => other === threat || (threat?.id != null && other?.id === threat.id));
+}
 function nearestGem(game, actor, threats) {
   let chosen = null, score = Infinity;
   for (const gem of game.gems || []) {
@@ -218,15 +222,20 @@ function pursuitPoint(game, actor, target) {
   const scale = maxR / dz;
   return { x: zone.x + (target.x - zone.x) * scale, y: zone.y + (target.y - zone.y) * scale };
 }
-function aimAndCast(game, actor, target) {
+function aimAndCast(game, actor, target, retreatVector = null, retreating = false) {
   if (!actor.ai) actor.ai = {};
-  const direction = target || actor.ai?.lastAim || { x: actor.x + 1, y: actor.y };
+  let direction = target || actor.ai?.lastAim || { x: actor.x + 1, y: actor.y };
   let castSlot = -1;
   if (target) {
     for (let i = 0; i < (actor.activeSkills || []).length; i++) {
       const id = actor.activeSkills[i];
       if ((actor.cooldowns?.[id] || 0) <= 0) { castSlot = i; break; }
     }
+  } else if (retreating && retreatVector && Math.hypot(retreatVector.x, retreatVector.y) > 0.1) {
+    castSlot = (actor.activeSkills || []).findIndex(id => id === 'dash' && (actor.cooldowns?.[id] || 0) <= 0);
+  }
+  if (retreating && castSlot >= 0 && actor.activeSkills?.[castSlot] === 'dash' && retreatVector) {
+    direction = { x: actor.x + retreatVector.x, y: actor.y + retreatVector.y };
   }
   actor.ai.lastAim = { x: direction.x, y: direction.y };
   return { aimX: direction.x, aimY: direction.y, castSlot };
@@ -236,17 +245,28 @@ export function think(game, actor, dt = 1 / 30) {
   if (!game?.map || !actor || !alive(actor)) return { mx: 0, my: 0, aimX: actor?.x || 0, aimY: actor?.y || 0, castSlot: -1 };
   if (!actor.ai) actor.ai = {};
   const threats = getThreats(game, actor);
+  const actorThreats = threats.filter(threat => isActorThreat(game, threat));
+  const nearestOpponent = actorThreats[0] || null;
   const closeThreat = threats[0] && distance(actor, threats[0]) < 270 ? threats[0] : null;
   const finalPursuit = game.phase === 'finale' && !closeThreat ? nearestAliveActor(game, actor) : null;
   const safe = safeTarget(game, actor);
+  const selfHp = healthRatio(actor);
+  const opponentHp = healthRatio(nearestOpponent);
+  const canHarvest = nearestOpponent && selfHp > 0.4 && opponentHp < 0.25;
+  const huntPvpRetreat = game.phase === 'hunt' && actorThreats.length > 0 && (
+    (selfHp < 0.6 && !canHarvest)
+    || actorThreats.length >= 2
+    || (actor.level || 1) + 3 <= (nearestOpponent.level || 1)
+  );
+  const retreating = !safe && (huntPvpRetreat || (lowHealth(actor) && threats.length > 0));
   let destination = null;
   let combatTarget = closeThreat || finalPursuit || threats[0] || null;
 
   if (safe) {
     destination = safe;
-  } else if (lowHealth(actor) && threats.length) {
+  } else if (retreating) {
     destination = retreatTarget(game, actor, threats);
-    combatTarget = null;
+    if (huntPvpRetreat && nearestOpponent) combatTarget = nearestOpponent;
   } else if (closeThreat && game.phase !== 'grace') {
     // Keep ranged and melee actors near their attack range while avoiding direct contact.
     const d = distance(actor, closeThreat);
@@ -261,7 +281,7 @@ export function think(game, actor, dt = 1 / 30) {
     destination = pursuitPoint(game, actor, finalPursuit);
   }
 
-  const gem = (!destination || (!safe && !lowHealth(actor) && !finalPursuit)) ? nearestGem(game, actor, threats) : null;
+  const gem = (!destination || (!safe && !retreating && !finalPursuit)) ? nearestGem(game, actor, threats) : null;
   if (gem && !finalPursuit && (!combatTarget || !closeThreat || distance(actor, gem) < distance(actor, combatTarget) * 0.78)) destination = gem;
   if (!destination && !combatTarget) {
     const p = actor.ai?.wanderUntil > game.time ? actor.ai.wanderTarget : null;
@@ -276,7 +296,7 @@ export function think(game, actor, dt = 1 / 30) {
 
   let mx = 0, my = 0;
   if (destination) {
-    const waypoint = pathTo(game, actor, destination, safe ? 'zone' : lowHealth(actor) ? 'retreat' : combatTarget ? 'fight' : gem ? 'xp' : 'wander');
+    const waypoint = pathTo(game, actor, destination, safe ? 'zone' : retreating ? 'retreat' : combatTarget ? 'fight' : gem ? 'xp' : 'wander');
     const dx = waypoint.x - actor.x, dy = waypoint.y - actor.y;
     const len = Math.hypot(dx, dy);
     if (len > 4) { mx = dx / len; my = dy / len; }
@@ -294,6 +314,6 @@ export function think(game, actor, dt = 1 / 30) {
   }
 
   const aimTarget = combatTarget && lineClear(game.map, actor, combatTarget, actor.radius || 12) ? combatTarget : null;
-  const action = aimAndCast(game, actor, aimTarget);
+  const action = aimAndCast(game, actor, aimTarget, { x: mx, y: my }, retreating);
   return { mx, my, aimX: action.aimX, aimY: action.aimY, castSlot: action.castSlot };
 }

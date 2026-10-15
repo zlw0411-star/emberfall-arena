@@ -18,9 +18,9 @@ export const PROGRESSION = Object.freeze({
 });
 
 export const COMBAT_BALANCE = Object.freeze({
-  actorDamageMultiplier: 0.32,
-  huntDamageMultiplier: 0.12,
-  finaleDamageMultiplier: 0.32,
+  actorDamageMultiplier: 0.95,
+  huntDamageMultiplier: 0.65,
+  finaleDamageMultiplier: 0.95,
   xpThresholdMultiplier: 1.1,
   baseMaxHp: 280,
   levelMaxHp: 8,
