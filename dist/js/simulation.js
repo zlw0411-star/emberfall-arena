@@ -1,5 +1,6 @@
 import {MATCH_SIZE,generateMap,rngFromSeed,randomFree,moveEntity,blocked} from './world.js';
-import {createActor,updateCombat,castSkill,damage,PROGRESSION} from './combat.js';
+import {createActor,configureActorForMode,updateCombat,castSkill,damage,PROGRESSION} from './combat.js';
+import {normalizeMode} from './modes.js';
 import {think} from './ai.js';
 
 // Twelve travelers share 20% more supplies than the eight-traveler arena.
@@ -8,10 +9,15 @@ const resourceScale=1.2;
 export const CONFIG={actorCount:MATCH_SIZE,simulationHz:60,grace:90,pvpNotice:10,maxLevel:PROGRESSION.maxLevel,warning:10,shrinkDuration:180,matchLimit:720,finaleDeadline:520,initialGems:Math.round(72*resourceScale),initialMonsters:Math.round(24*resourceScale),monsterCap:Math.round(52*resourceScale),gemCap:Math.round(110*resourceScale),monsterInterval:3.2/resourceScale,gemInterval:7/resourceScale,mapGemXp:5,monsterXp:15,bruteXp:25};
 const names=['你','苔痕','鸦羽','夜行者','烛影','赤砂','雾凇','游隼','青芒','松烟','星屑','玄石'];
 const colors=['#f2be65','#7bc796','#aa9de6','#6bb8dc','#e39ca4','#df9764','#9ccec6','#c7c28a','#a6cb68','#a89a7d','#e2a8d9','#829bba'];
-export function createGame(seed=Date.now()){
+export function createGame(seed=Date.now(),options={}){
   const map=generateMap(seed),rng=rngFromSeed(seed);
   const game={seed,map,rng,time:0,phase:'grace',actors:[],monsters:[],gems:[],bullets:[],effects:[],events:[],zone:null,result:null,paused:false,pvpNoticeSent:false,nextId:100,spawnTimer:0,gemTimer:0,spawnCount:0,gemSpawnCount:0};
-  game.actors=map.spawnPoints.map((p,i)=>createActor('a'+i,names[i],p.x,p.y,i===0,colors[i]));
+  Object.defineProperty(game,'mode',{value:normalizeMode(options?.mode),enumerable:true});
+  game.actors=map.spawnPoints.map((p,i)=>{
+    const actor=createActor('a'+i,names[i],p.x,p.y,i===0,colors[i]);
+    configureActorForMode(actor,game.mode);
+    return actor;
+  });
   for(let i=0;i<CONFIG.initialGems;i++)spawnGem(game);
   for(let i=0;i<CONFIG.initialMonsters;i++)spawnMonster(game);
   game.events.push({text:'试炼开启 · 90 秒发育保护',time:0,color:'#f2be65'});
@@ -51,6 +57,12 @@ export function stepGame(game,dt,input={}){
   for(const a of game.actors){
     if(!a.alive)continue;
     const command=(!a.isPlayer||input.autoPlayer)?think(game,a,dt):input;
+    if(game.mode==='melee'){
+      a.attackHeld=!!command.attackHeld;
+      a.attackPressed=!!command.attackPressed;
+      const dx=(command.aimX??a.x)-a.x,dy=(command.aimY??a.y)-a.y;
+      if(Number.isFinite(dx)&&Number.isFinite(dy)&&Math.hypot(dx,dy)>.001)a.aimAngle=Math.atan2(dy,dx);
+    }
     let mx=command.mx||0,my=command.my||0;const len=Math.hypot(mx,my);if(len>1){mx/=len;my/=len;}
     let slow=1;for(const t of game.map.traps)if(t.type==='mud'&&Math.hypot(a.x-t.x,a.y-t.y)<t.r+a.radius)slow=.55;
     if(a.slowUntil>game.time)slow*=.65;

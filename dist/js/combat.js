@@ -1,5 +1,6 @@
 // Combat simulation. This module deliberately has no DOM or external dependencies.
 import { lineClear, moveEntity } from './world.js';
+import { normalizeMode, MELEE_BALANCE } from './modes.js';
 export const SKILLS = {
   fireball: { name: '火球', description: '每级伤害36→63，爆炸半径56→80，冷却3.86→2.86秒（共4级）', icon: '●', color: '#ff8a42', type: 'active', maxRank: 4, cooldown: 4.2 },
   dash: { name: '震荡冲刺', description: '冲刺112→148像素；冲击伤害31→55、半径47→62（共4级）', icon: '➤', color: '#67e8f9', type: 'active', maxRank: 4, cooldown: 6.5 },
@@ -10,6 +11,24 @@ export const SKILLS = {
   magnet: { name: '拾荒者', description: '每级拾取半径+18像素，从30扩大到120', icon: '✧', color: '#60a5fa', type: 'passive', maxRank: 5, cooldown: 0 },
   multishot: { name: '连射', description: '每级攻击间隔缩短5.5%、弹速+18；4级起每次攻击额外发射1枚弹丸', icon: '⁝', color: '#f0abfc', type: 'passive', maxRank: 5, cooldown: 0 },
 };
+
+export const MELEE_SKILLS = {
+  lunge: { name: '突进斩', description: '向瞄准方向突进112→148像素，挥刀造成2.8→3.7倍伤害', icon: '➤', color: '#67e8f9', type: 'active', maxRank: 4, cooldown: 7 },
+  whirlwind: { name: '旋风斩', description: '周身78→96像素斩击，造成3→3.9倍伤害', icon: '◎', color: '#c084fc', type: 'active', maxRank: 4, cooldown: 8 },
+  heavySlash: { name: '重斩', description: '蓄力0.35秒，斩击96→114像素，造成3.5→4.7倍伤害并击退', icon: '✦', color: '#ff8a42', type: 'active', maxRank: 4, cooldown: 8 },
+  power: { ...SKILLS.power, name: '刀锋强化' },
+  haste: { ...SKILLS.haste }, vitality: { ...SKILLS.vitality }, magnet: { ...SKILLS.magnet },
+  bladeReach: { name: '刀势延伸', description: '每级普攻范围+4像素、扇形角度+6°', icon: '⌁', color: '#f0abfc', type: 'passive', maxRank: 5, cooldown: 0 },
+};
+export function getSkills(gameOrMode) {
+  const mode = typeof gameOrMode === 'string' ? gameOrMode : gameOrMode?.mode ?? (gameOrMode?.weaponType === 'sword' ? 'melee' : 'classic');
+  return normalizeMode(mode) === 'melee' ? MELEE_SKILLS : SKILLS;
+}
+export function configureActorForMode(actor, mode) {
+  actor.weaponType = normalizeMode(mode) === 'melee' ? 'sword' : 'ranged';
+  if (actor.weaponType === 'sword') Object.assign(actor, { attackRange: MELEE_BALANCE.range, attackInterval: MELEE_BALANCE.interval, attackTimer: 0, aimAngle: 0, attackHeld: false, attackPressed: false, meleeAction: null });
+  return actor;
+}
 
 export const PROGRESSION = Object.freeze({
   maxLevel: 15,
@@ -85,7 +104,8 @@ export function addXp(game, actor, amount) {
 
 export function getChoices(game, actor) {
   if (!alive(actor) || !(actor.pendingChoices > 0)) return [];
-  const available = Object.keys(SKILLS).filter(id => (actor.skills?.[id] || 0) < SKILLS[id].maxRank && canLearnSkill(actor, id));
+  const skills = getSkills(game);
+  const available = Object.keys(skills).filter(id => (actor.skills?.[id] || 0) < skills[id].maxRank && canLearnSkill(actor, id, skills));
   if (!available.length) {
     actor.pendingChoices = 0;
     actor.choices = [];
@@ -103,39 +123,42 @@ export function getChoices(game, actor) {
 }
 
 export function chooseSkill(game, actor, skillId) {
-  if (!alive(actor) || !(actor.pendingChoices > 0) || !Object.hasOwn(SKILLS, skillId)) return false;
+  const skills = getSkills(game);
+  if (!alive(actor) || !(actor.pendingChoices > 0) || !Object.hasOwn(skills, skillId)) return false;
   let choices = actor.choices;
   if (!Array.isArray(choices) || !choices.length) choices = getChoices(game, actor);
-  if (!choices.includes(skillId) || (actor.skills?.[skillId] || 0) >= SKILLS[skillId].maxRank || !canLearnSkill(actor, skillId)) return false;
-  applySkillRank(actor, skillId);
+  if (!choices.includes(skillId) || (actor.skills?.[skillId] || 0) >= skills[skillId].maxRank || !canLearnSkill(actor, skillId, skills)) return false;
+  applySkillRank(actor, skillId, skills);
   actor.pendingChoices--;
   actor.choices = actor.pendingChoices > 0 ? getChoices(game, actor) : [];
-  pushEvent(game, `${actor.name || '战士'} 强化了「${SKILLS[skillId].name}」`, SKILLS[skillId].color);
-  pushEffect(game, { x: actor.x, y: actor.y - 28, kind: 'text', text: SKILLS[skillId].name, color: SKILLS[skillId].color, ttl: 1 });
+  pushEvent(game, `${actor.name || '战士'} 强化了「${skills[skillId].name}」`, skills[skillId].color);
+  pushEffect(game, { x: actor.x, y: actor.y - 28, kind: 'text', text: skills[skillId].name, color: skills[skillId].color, ttl: 1 });
   if (actor.isPlayer !== true && actor.pendingChoices > 0) autoChoose(game, actor);
   return true;
 }
 
-function applySkillRank(actor, skillId) {
+function applySkillRank(actor, skillId, skills = SKILLS) {
   actor.skills ||= {};
   actor.skills[skillId] = (actor.skills[skillId] || 0) + 1;
-  if (SKILLS[skillId].type === 'active' && !actor.activeSkills.includes(skillId)) actor.activeSkills.push(skillId);
+  if (skills[skillId].type === 'active' && !actor.activeSkills.includes(skillId)) actor.activeSkills.push(skillId);
   if (skillId === 'vitality') {
     actor.maxHp = levelMaxHp(actor.level) + (actor.skills.vitality || 0) * COMBAT_BALANCE.vitalityMaxHp;
     actor.hp = Math.min(actor.maxHp, actor.hp + COMBAT_BALANCE.vitalityHeal);
   }
   if (skillId === 'haste') actor.speed = 100 * (1 + actor.skills.haste * 0.08);
   if (skillId === 'magnet') actor.pickupRadius = 30 + actor.skills.magnet * 18;
+  if (skillId === 'bladeReach') actor.attackRange = MELEE_BALANCE.range + Math.min(5, actor.skills.bladeReach) * 4;
 }
 
 function autoChoose(game, actor) {
+  const skills = getSkills(game);
   let guard = 0;
   while (actor.pendingChoices > 0 && guard++ < 10) {
     const options = getChoices(game, actor);
     if (!options.length) break;
     // Prefer an active option early, then strengthen the best available attack/passive.
     const rankOf = id => actor.skills?.[id] || 0;
-    const priority = id => (rankOf(id) === 0 && SKILLS[id].type === 'active' ? 4 : 0)
+    const priority = id => (rankOf(id) === 0 && skills[id].type === 'active' ? 4 : 0)
       + ({ power: 3, haste: 2, vitality: 1, multishot: 1, fireball: 2, quake: 1, dash: 1 }[id] || 0)
       - rankOf(id) * 0.2;
     options.sort((a, b) => priority(b) - priority(a));
@@ -145,6 +168,7 @@ function autoChoose(game, actor) {
 
 export function castSkill(game, actor, slot, aimX, aimY) {
   if (!alive(actor) || !Number.isInteger(slot) || slot < 0 || slot >= PROGRESSION.maxActiveSkills) return false;
+  if (getSkills(game) === MELEE_SKILLS || actor.weaponType === 'sword') return castMeleeSkill(game, actor, slot, aimX, aimY);
   const skillId = actor.activeSkills?.[slot];
   if (!skillId || SKILLS[skillId]?.type !== 'active' || (actor.cooldowns?.[skillId] || 0) > 0) return false;
   const rank = actor.skills?.[skillId] || 0;
@@ -199,6 +223,7 @@ export function damage(game, target, amount, source = null) {
   if (target.hp <= 0) {
     target.alive = false;
     if (isActor(game, target)) {
+      if (target.weaponType === 'sword') { target.meleeAction = null; target.attackHeld = false; target.attackPressed = false; }
       target.pendingChoices = 0;
       target.choices = [];
       if (sourceActor && sourceActor !== target && actorList(game).includes(sourceActor)) {
@@ -230,7 +255,7 @@ export function updateCombat(game, dt) {
   game.gems ||= [];
   game.effects ||= [];
   for (const actor of actors) {
-    if (!alive(actor)) continue;
+    if (!alive(actor)) { if (actor.weaponType === 'sword') { actor.meleeAction = null; actor.attackHeld = false; actor.attackPressed = false; } continue; }
     tickActor(game, actor, dt);
   }
   for (const monster of monsters) {
@@ -258,6 +283,7 @@ function tickActor(game, actor, dt) {
     actor.hp = Math.min(actor.maxHp, actor.hp + ticks * (0.35 + vitality * 0.22));
   }
   if (actor.pendingChoices > 0 && actor.isPlayer !== true) autoChoose(game, actor);
+  if (getSkills(game) === MELEE_SKILLS || actor.weaponType === 'sword') { tickMelee(game, actor, dt); return; }
   if (actor.attackTimer <= 0) {
     const targets = [...monsterList(game)];
     if (game.phase !== 'grace') targets.push(...actorList(game).filter(other => other !== actor && alive(other)));
@@ -408,8 +434,8 @@ function dropGem(game, monster, value) {
   if (monster.type === 'brute' && (game.rng || Math.random)() < 0.28) game.gems.push({ id: game.nextId++, x: monster.x + 8, y: monster.y, value: COMBAT_BALANCE.healingGemValue, kind: 'heal', radius: 6, ttl: 45 });
 }
 
-function canLearnSkill(actor, skillId) {
-  return SKILLS[skillId].type !== 'active' || actor.activeSkills?.includes(skillId)
+function canLearnSkill(actor, skillId, skills = SKILLS) {
+  return skills[skillId].type !== 'active' || actor.activeSkills?.includes(skillId)
     || (actor.activeSkills?.length || 0) < PROGRESSION.maxActiveSkills;
 }
 function scaledDamage(actor, amount) { return amount * (1 + Math.min(SKILLS.power.maxRank, actor?.skills?.power || 0) * COMBAT_BALANCE.powerDamagePerRank); }
@@ -451,3 +477,80 @@ function pushEvent(game, text, color) {
 }
 
 function hasLine(map, a, b) { return lineClear(map, a, b, 1); }
+
+function meleeAction(actor, kind, angle, range, arc, windup, active, recovery, amount) {
+  actor.meleeActionSequence = (actor.meleeActionSequence || 0) + 1;
+  return { id: `${actor.id}:${actor.meleeActionSequence}`, kind, phase: windup > 0 ? 'windup' : 'active', angle, range, arc, elapsed: 0,
+    windup, active, recovery, hitIds: new Set(), damage: amount };
+}
+function castMeleeSkill(game, actor, slot, aimX, aimY) {
+  const id = actor.activeSkills?.[slot], def = MELEE_SKILLS[id], rank = actor.skills?.[id] || 0;
+  if (!def || def.type !== 'active' || !Number.isInteger(rank) || rank < 1 || rank > def.maxRank || (actor.cooldowns?.[id] || 0) > 0) return false;
+  if (actor.meleeAction && actor.meleeAction.kind !== 'basic') return false;
+  const dx = (aimX ?? actor.x + Math.cos(actor.aimAngle || 0)) - actor.x;
+  const dy = (aimY ?? actor.y + Math.sin(actor.aimAngle || 0)) - actor.y;
+  const angle = dx || dy ? Math.atan2(dy, dx) : actor.aimAngle || 0;
+  let range = 68, arc = MELEE_BALANCE.arc, windup = 0, coefficient;
+  if (id === 'lunge') {
+    const distance = 112 + (rank - 1) * 12;
+    moveEntity(game.map, actor, Math.cos(angle) * distance, Math.sin(angle) * distance);
+    coefficient = 2.8 + .3 * (rank - 1);
+  } else if (id === 'whirlwind') {
+    range = 78 + 6 * (rank - 1); arc = Math.PI * 2; coefficient = 3 + .3 * (rank - 1);
+  } else {
+    range = 96 + 6 * (rank - 1); arc = 80 * Math.PI / 180; windup = .35; coefficient = 3.5 + .4 * (rank - 1);
+  }
+  actor.meleeAction = meleeAction(actor, id, angle, range, arc, windup, .08, .25, scaledDamage(actor, (actor.attackDamage || 13) * coefficient));
+  actor.cooldowns ||= {};
+  actor.cooldowns[id] = def.cooldown;
+  if (!windup) hitMelee(game, actor, actor.meleeAction);
+  return true;
+}
+function tickMelee(game, actor, dt) {
+  actor.attackRange = MELEE_BALANCE.range + Math.min(5, actor.skills?.bladeReach || 0) * 4;
+  const pressed = actor.attackPressed;
+  actor.attackPressed = false;
+  const action = actor.meleeAction;
+  if (action) {
+    const before = action.elapsed;
+    action.elapsed += dt;
+    if (before < action.windup + action.active && action.elapsed >= action.windup) hitMelee(game, actor, action);
+    action.phase = action.elapsed < action.windup ? 'windup' : action.elapsed < action.windup + action.active ? 'active' : 'recovery';
+    if (action.elapsed >= action.windup + action.active + action.recovery) actor.meleeAction = null;
+  }
+  if (!actor.meleeAction && actor.attackTimer <= 0 && (pressed || actor.attackHeld)) {
+    const reach = Math.min(5, actor.skills?.bladeReach || 0);
+    const interval = (actor.attackInterval || MELEE_BALANCE.interval) * Math.max(.56, 1 - (actor.skills?.haste || 0) * .065);
+    actor.attackTimer = interval;
+    actor.meleeAction = meleeAction(actor, 'basic', actor.aimAngle || 0, MELEE_BALANCE.range + reach * 4,
+      MELEE_BALANCE.arc + reach * Math.PI / 30, MELEE_BALANCE.windup, MELEE_BALANCE.active,
+      Math.max(0, interval - MELEE_BALANCE.windup - MELEE_BALANCE.active), scaledDamage(actor, (actor.attackDamage || 13) * MELEE_BALANCE.damageMultiplier));
+  }
+}
+function circleIntersectsSector(actor, target, action) {
+  const dx = target.x - actor.x, dy = target.y - actor.y, distance = Math.hypot(dx, dy), radius = target.radius || 0;
+  if (distance > action.range + radius) return false;
+  if (distance <= radius || action.arc >= 2 * Math.PI) return true;
+  const difference = Math.atan2(Math.sin(Math.atan2(dy, dx) - action.angle), Math.cos(Math.atan2(dy, dx) - action.angle));
+  if (Math.abs(difference) <= action.arc / 2) return true;
+  // Outside the angular span, the nearest sector point lies on one of its radial edges.
+  for (const edge of [action.angle - action.arc / 2, action.angle + action.arc / 2]) {
+    const ux = Math.cos(edge), uy = Math.sin(edge), projection = clamp(dx * ux + dy * uy, 0, action.range);
+    if (Math.hypot(dx - ux * projection, dy - uy * projection) <= radius) return true;
+  }
+  return false;
+}
+function hitMelee(game, actor, action) {
+  for (const target of [...monsterList(game), ...actorList(game)]) {
+    const key = target.id ?? target;
+    if (!alive(target) || target === actor || action.hitIds.has(key) || (game.phase === 'grace' && isActor(game, target))) continue;
+    if (!circleIntersectsSector(actor, target, action) || !hasLine(game.map, actor, target)) continue;
+    action.hitIds.add(key);
+    const dealt = damage(game, target, action.damage, actor);
+    if (dealt && action.kind === 'heavySlash' && alive(target)) {
+      const dx = target.x - actor.x, dy = target.y - actor.y, distance = Math.hypot(dx, dy);
+      const ux = distance ? dx / distance : Math.cos(action.angle), uy = distance ? dy / distance : Math.sin(action.angle);
+      moveEntity(game.map, target, ux * 24, uy * 24);
+    }
+  }
+}

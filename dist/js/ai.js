@@ -283,6 +283,7 @@ function aimAndCast(game, actor, target, retreatVector = null, retreating = fals
 }
 
 export function think(game, actor, dt = 1 / 30) {
+  if (game?.mode === 'melee') return thinkMelee(game, actor);
   if (!game?.map || !actor || !alive(actor)) return { mx: 0, my: 0, aimX: actor?.x || 0, aimY: actor?.y || 0, castSlot: -1 };
   if (!actor.ai) actor.ai = {};
   const threats = getThreats(game, actor);
@@ -357,4 +358,93 @@ export function think(game, actor, dt = 1 / 30) {
   const aimTarget = combatTarget && lineClear(game.map, actor, combatTarget, actor.radius || 12) ? combatTarget : null;
   const action = aimAndCast(game, actor, aimTarget, { x: mx, y: my }, retreating);
   return { mx, my, aimX: action.aimX, aimY: action.aimY, castSlot: action.castSlot };
+}
+
+// Melee decisions share the static navigation cache, but never use ranged
+// spacing or the classic skill selection policy.
+function thinkMelee(game, actor) {
+  const idle = { mx: 0, my: 0, aimX: actor?.x || 0, aimY: actor?.y || 0, castSlot: -1, attackHeld: false };
+  if (!game?.map || !alive(actor)) return idle;
+  actor.ai ||= {};
+  const threats = getThreats(game, actor);
+  const safe = safeTarget(game, actor);
+  const target = threats[0] || (game.phase === 'finale' ? nearestAliveActor(game, actor) : null);
+  const d = target ? distance(actor, target) : Infinity;
+  const range = actor.attackRange || 68;
+  const visible = target && lineClear(game.map, actor, target, actor.radius || 12);
+  const nearbyOpponents = threats.filter(t => isActorThreat(game, t) && distance(actor, t) < 145);
+  const weak = healthRatio(actor) < 0.3 && (!target || healthRatio(target) > healthRatio(actor) + 0.12);
+  const outmatched = nearbyOpponents.length >= 3 || (nearbyOpponents.length >= 2 && healthRatio(actor) < 0.6);
+  const retreating = !safe && threats.length > 0 && (weak || outmatched);
+  let destination = safe;
+  let evading = false;
+  if (!destination && retreating) destination = retreatTarget(game, actor, threats);
+  if (!destination && target) {
+    // Only react to an already visible windup; never inspect future cooldowns.
+    const action = target.meleeAction;
+    const winding = visible && action && (action.phase === 'windup' || action.stage === 'windup');
+    if (winding && d < (action.range || range) + 16 && !actor.meleeAction) {
+      const angle = action.angle ?? target.aimAngle;
+      const toSelf = Math.atan2(actor.y - target.y, actor.x - target.x);
+      const delta = angle == null ? Math.PI : Math.atan2(Math.sin(toSelf - angle), Math.cos(toSelf - angle));
+      if (Math.abs(delta) < 1.15) {
+        destination = { x: actor.x + Math.cos(toSelf) * 70, y: actor.y + Math.sin(toSelf) * 70 };
+        evading = true;
+      }
+    }
+    if (!destination && (d > range * 0.78 || !visible)) destination = pursuitPoint(game, actor, target);
+    else if (!destination && d < Math.max(22, range * 0.3)) {
+      const angle = Math.atan2(actor.y - target.y, actor.x - target.x);
+      destination = { x: actor.x + Math.cos(angle) * 35, y: actor.y + Math.sin(angle) * 35 };
+    }
+  }
+  const gem = !safe && !retreating && !evading ? nearestGem(game, actor, threats) : null;
+  if (gem && (game.phase !== 'finale' || !target) && (!target || (d > range * 1.4 && distance(actor, gem) < d * 0.7))) destination = gem;
+  if (!destination && !target) {
+    if (actor.ai.wanderUntil > game.time) destination = actor.ai.wanderTarget;
+    else {
+      const angle = String(actor.id).length * 2.399 + (game.time || 0) * 0.08;
+      destination = { x: clamp(actor.x + Math.cos(angle) * 300, 50, game.map.width - 50), y: clamp(actor.y + Math.sin(angle) * 300, 50, game.map.height - 50) };
+      actor.ai.wanderTarget = destination;
+      actor.ai.wanderUntil = (game.time || 0) + 7;
+    }
+  }
+  let mx = 0, my = 0;
+  if (destination) {
+    // Direct steering near a visible opponent avoids the last grid waypoint
+    // leaving a swordsman waiting outside sword range.
+    const waypoint = lineClear(game.map, actor, destination, actor.radius || 12) ? destination : pathTo(game, actor, destination, safe ? 'zone' : retreating ? 'retreat' : 'melee');
+    const dx = waypoint.x - actor.x, dy = waypoint.y - actor.y, len = Math.hypot(dx, dy);
+    if (len > 4) { mx = dx / len; my = dy / len; }
+  }
+  let hazard = false;
+  for (const trap of game.map.traps || []) {
+    const phase = ((game.time + (trap.offset || 0)) % 4 + 4) % 4;
+    if (trap.type === 'spike' && distance(actor, trap) < trap.r + 38 && phase >= 2.1) {
+      const angle = Math.atan2(actor.y - trap.y, actor.x - trap.x);
+      mx = Math.cos(angle); my = Math.sin(angle); hazard = true; break;
+    }
+  }
+  let direction = visible ? target : actor.ai.lastAim || { x: actor.x + 1, y: actor.y };
+  let castSlot = -1;
+  if (!actor.meleeAction && !safe && !hazard) {
+    for (let i = 0; i < (actor.activeSkills || []).length; i++) {
+      const id = actor.activeSkills[i];
+      if ((actor.cooldowns?.[id] || 0) > 0) continue;
+      const rank = actor.skills?.[id] || 1;
+      if (id === 'lunge') {
+        const reach = 112 + (rank - 1) * 12;
+        const aim = retreating ? { x: actor.x + mx * reach, y: actor.y + my * reach } : target;
+        if (!aim || (retreating ? Math.hypot(mx, my) < 0.1 : (!visible || d <= range || d > reach + range * 0.75))) continue;
+        const angle = Math.atan2(aim.y - actor.y, aim.x - actor.x);
+        const end = { x: actor.x + Math.cos(angle) * reach, y: actor.y + Math.sin(angle) * reach };
+        if (!lineClear(game.map, actor, end, actor.radius || 12) || blocked(game.map, end.x, end.y, actor.radius || 12) || safeTarget(game, { ...actor, ...end })) continue;
+        direction = aim; castSlot = i; break;
+      }
+      if (id === 'whirlwind' && threats.some(t => distance(actor, t) <= 78 + 6 * (rank - 1) && lineClear(game.map, actor, t, 0))) { castSlot = i; break; }
+      if (id === 'heavySlash' && !retreating && !evading && visible && d <= 96 + 6 * (rank - 1)) { direction = target; castSlot = i; break; }
+    }
+  }
+  actor.ai.lastAim = { x: direction.x, y: direction.y };
+  return { mx, my, aimX: direction.x, aimY: direction.y, castSlot, attackHeld: !!(visible && d <= range && !safe && !hazard && !evading && castSlot < 0 && !actor.meleeAction) };
 }

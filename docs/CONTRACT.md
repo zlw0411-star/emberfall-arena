@@ -21,3 +21,15 @@ Exports CONFIG, createGame(seed), stepGame(game,dt,input={mx:0,my:0,aimX,aimY,ca
 
 ## Tests (tests agent)
 Own tests/*.test.js, tests/simulate.js. Node built-in test runner. Test contracts, seeded maps reachability, grace, milestone queued selections, no pause during choice, maxlevel triggers once, no new spawns after finale, safe circle and final resolution. Wait until modules exist then run. Report bugs to owner rather than edit their modules.
+
+## Mode and melee contract (2026-10-16)
+
+createGame(seed, {mode}) accepts classic or melee; omission/unknown defaults classic. game.mode is enumerable and immutable for that round. New games/restarts configure every actor via configureActorForMode; one player plus11 AI. Classic SKILLS remains the original catalog export; getSkills(gameOrMode) returns the selected mode catalog. modes.js owns MODES, normalizeMode and MELEE_BALANCE.
+
+Melee command extends movement/cast/aim with attackHeld and attackPressed. Core sets aimAngle from nonzero aim before skill casting and passes requests to combat. controls.js owns pointer capture and click-edge consumption; pause, death, blur and menu reset call clear. Canvas alone accepts attack presses, so clicking a choice card does not attack.
+
+Melee action is actor.meleeAction={id,kind,phase,angle,range,arc,elapsed,windup,active,recovery,hitIds:Set,damage}; angles in radians, distances in world pixels. Every action has an actor-scoped monotonic unique id; no RNG consumption. Basic windup.20,active.08,total.65 seconds,sector120deg/range68,damage2.2*base; haste modifies interval and bladeReach adds4px/6deg per rank. Direction locks on startup, actor may move, valid targets hit once across active frames. LOS blocks all knife hits. Active skills interrupt basic, active actions do not interrupt one another. Death clears action and attack requests.
+
+Independent melee pool: lunge/whirlwind/heavySlash(max4),power/haste/vitality/magnet/bladeReach(max5). Existing power/vitality/haste/magnet effects retained. lunge112+12*(r-1) movement then68px120deg hit,damage2.8+.3*(r-1),cd7. whirlwind radius78+6*(r-1),360deg,damage3+.3*(r-1),cd8. heavySlash windup.35,range96+6*(r-1),80deg,damage3.5+.4*(r-1),24px knockback,cd8. Skill damage coefficients multiply base attack and power. Skills active.08/recovery.25; lunge and whirlwind are immediate. Geometry and all growth/stage/settlement remain shared.
+
+UI/input/renderer/simulation and publication owned by root; combat/catalog/modes by combat agent; ai.js by AI agent; tests/ by validation agent. Tests read GAME_MODE and SIM_HZ for explicit benchmark mode/rate.

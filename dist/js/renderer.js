@@ -3,7 +3,7 @@ import {rngFromSeed} from './world.js';
 const palette={ground:'#293c30',grass:'#354a32',stone:'#616b50',dark:'#172a22',gold:'#e6bd79'};
 function rect(c,color,x,y,w,h){c.fillStyle=color;c.fillRect(Math.round(x),Math.round(y),w,h);}
 function ellipse(c,color,x,y,rx,ry){c.fillStyle=color;c.beginPath();c.ellipse(x,y,rx,ry,0,0,Math.PI*2);c.fill();}
-export function drawHero(c,x,y,color,time=0,moving=false,scale=1,flash=false){
+export function drawHero(c,x,y,color,time=0,moving=false,scale=1,flash=false,pose=null){
  c.save();c.translate(Math.round(x),Math.round(y));c.scale(scale,scale);const b=moving?Math.round(Math.sin(time*11)*1.5):0;
  ellipse(c,'#0c1b1890',0,7,12,5);c.translate(0,b);
  rect(c,'#172721',-8,-12,16,17);rect(c,'#27392c',-11,-8,5,15);rect(c,'#27392c',7,-8,5,15);
@@ -11,8 +11,29 @@ export function drawHero(c,x,y,color,time=0,moving=false,scale=1,flash=false){
  rect(c,'#d6be8e',-5,-8,10,7);rect(c,'#252b25',-4,-7,2,2);rect(c,'#252b25',3,-7,2,2);
  rect(c,'#37422b',-6,-1,12,10);rect(c,color,-8,0,4,10);rect(c,color,5,0,4,10);rect(c,'#aa9564',-5,4,10,2);
  const leg=moving?Math.round(Math.sin(time*11)*2):0;rect(c,'#192c24',-6,8,5,5+leg);rect(c,'#192c24',2,8,5,5-leg);
- rect(c,'#dacaa0',11,-5,3,14);rect(c,'#7c6748',10,8,5,3);rect(c,'#bbc6a1',11,-9,3,7);
+ if(pose?.weaponType==='sword')drawSword(c,0,0,pose.aimAngle||0,pose.attackRange||68,flash);
+ else {rect(c,'#dacaa0',11,-5,3,14);rect(c,'#7c6748',10,8,5,3);rect(c,'#bbc6a1',11,-9,3,7);}
  c.restore();
+}
+function drawSword(c,x,y,angle,range,flash){
+ c.save();c.translate(Math.round(x),Math.round(y));c.rotate(angle);
+ const tip=Math.max(32,range-10);
+ rect(c,'#24362c',11,-2,13,5);rect(c,'#a78757',13,-1,9,3);rect(c,'#e6bd79',21,-5,3,10);
+ c.fillStyle=flash?'#ffffff':'#ccd9c6';c.beginPath();c.moveTo(25,-2);c.lineTo(tip-5,-2);c.lineTo(tip+1,0);c.lineTo(tip-5,3);c.lineTo(25,3);c.closePath();c.fill();
+ rect(c,'#f2edd1',26,-2,Math.max(5,tip-31),1);rect(c,'#829986',26,2,Math.max(5,tip-32),1);c.restore();
+}
+function drawMelee(c,a){
+ const action=a.meleeAction;
+ if(!action){if(a.isPlayer){const r=a.attackRange||68,angle=a.aimAngle||0;c.fillStyle='#e6bd7980';c.beginPath();c.arc(a.x+Math.cos(angle)*r,a.y+Math.sin(angle)*r,2,0,Math.PI*2);c.fill();}return a.aimAngle||0;}
+ const angle=action.angle||0,arc=action.arc||Math.PI*2,range=action.range||68;
+ const active=action.phase==='active',windup=action.phase==='windup';
+ const progress=Math.max(0,Math.min(1,(action.elapsed-action.windup)/Math.max(.001,action.active)));
+ c.save();c.translate(a.x,a.y);c.fillStyle=windup?'#f0c78312':active?'#fff1b51f':'#e6bd7909';c.strokeStyle=windup?'#dfac6e80':active?'#fff2ba':'#d0b37b44';c.lineWidth=active?3:1;
+ if(windup)c.setLineDash([3,5]);
+ c.beginPath();if(arc<Math.PI*2-.01)c.moveTo(0,0);c.arc(0,0,range,angle-arc/2,angle+arc/2);if(arc<Math.PI*2-.01)c.closePath();c.fill();c.stroke();c.setLineDash([]);
+ if(active){c.strokeStyle='#fff4cbaa';c.lineWidth=5;c.beginPath();c.arc(0,0,range*.78,angle-arc/2,angle-arc/2+arc*Math.max(.08,progress));c.stroke();}
+ c.restore();
+ return action.kind==='whirlwind'?angle+progress*Math.PI*2:windup?angle-arc/2:active?angle-arc/2+arc*progress:angle+arc/2*(1-Math.min(1,(action.elapsed-action.windup-action.active)/Math.max(.001,action.recovery)));
 }
 export class Renderer{
  constructor(canvas,minimap){this.canvas=canvas;this.ctx=canvas.getContext('2d',{alpha:false});this.minimap=minimap;this.mctx=minimap.getContext('2d',{alpha:false});this.camera={x:1024,y:1024};this.zoom=1.55;this.terrain=null;this.seed=null;this.decor=[];this.lastMap=0;}
@@ -66,7 +87,10 @@ export class Renderer{
  actor(c,a,t,phase){
   if(!a.alive){rect(c,'#54684b',a.x-6,a.y-2,12,4);rect(c,'#677652',a.x-2,a.y-8,4,16);return;}
   if(a.isPlayer){ellipse(c,'#e7c67a22',a.x,a.y+6,18,7);c.strokeStyle='#d3bd7a77';c.lineWidth=1;c.beginPath();c.ellipse(a.x,a.y+7,16,6,0,0,Math.PI*2);c.stroke();}
-  drawHero(c,a.x,a.y,a.color,t,a.moving,1,a.hitFlash>0);
+  if(a.weaponType==='sword'){
+   const swordAngle=drawMelee(c,a);
+   drawHero(c,a.x,a.y,a.color,t,a.moving,1,a.hitFlash>0,{weaponType:'sword',aimAngle:swordAngle,attackRange:a.attackRange});
+  }else drawHero(c,a.x,a.y,a.color,t,a.moving,1,a.hitFlash>0);
   const y=a.y-28;c.font='7px "Space Grotesk","Noto Sans SC",sans-serif';c.textAlign='center';c.fillStyle='#111e16';c.fillText(`${a.name}  Lv.${a.level}`,a.x+1,y-6);c.fillStyle=a.isPlayer?'#f0d99e':'#c7d1b2';c.fillText(`${a.name}  Lv.${a.level}`,a.x,y-7);rect(c,'#1a281c',a.x-15,y-3,30,3);rect(c,a.isPlayer?'#c9bf7a':phase==='grace'?'#91af7a':'#ca9374',a.x-15,y-3,30*a.hp/a.maxHp,2);
   if(a.isPlayer){c.fillStyle='#e7c67a';c.beginPath();c.moveTo(a.x-3,y-18);c.lineTo(a.x+3,y-18);c.lineTo(a.x,y-14);c.fill();}
  }

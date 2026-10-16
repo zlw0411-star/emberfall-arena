@@ -3,7 +3,8 @@ import { CONFIG, createGame, spawnMonster, stepGame } from '../dist/js/simulatio
 const DT = 1 / 60;
 const WARMUP_SECONDS = 2;
 const MEASURE_SECONDS = 30;
-const game = createGame(`performance-${CONFIG.actorCount}actors-${CONFIG.monsterCap}monsters`);
+const GAME_MODE = process.env.GAME_MODE === 'melee' ? 'melee' : 'classic';
+const game = createGame(`performance-${CONFIG.actorCount}actors-${CONFIG.monsterCap}monsters`, { mode: GAME_MODE });
 
 game.phase = 'hunt';
 game.time = 90;
@@ -42,6 +43,7 @@ const liveMonsters = game.monsters.filter(monster => monster.alive).length;
 
 console.log(JSON.stringify({
   node: process.version,
+  mode: game.mode,
   seed: game.seed,
   actors: liveActors,
   liveMonsters,
