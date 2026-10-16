@@ -26,7 +26,7 @@ export function getSkills(gameOrMode) {
 }
 export function configureActorForMode(actor, mode) {
   actor.weaponType = normalizeMode(mode) === 'melee' ? 'sword' : 'ranged';
-  if (actor.weaponType === 'sword') Object.assign(actor, { attackRange: MELEE_BALANCE.range, attackInterval: MELEE_BALANCE.interval, attackTimer: 0, aimAngle: 0, attackHeld: false, attackPressed: false, meleeAction: null });
+  if (actor.weaponType === 'sword') Object.assign(actor, { attackRange: MELEE_BALANCE.range, attackInterval: MELEE_BALANCE.interval, attackTimer: 0, aimAngle: 0, attackHeld: false, attackPressed: false, meleeAction: null, meleeVisuals: [] });
   return actor;
 }
 
@@ -223,7 +223,7 @@ export function damage(game, target, amount, source = null) {
   if (target.hp <= 0) {
     target.alive = false;
     if (isActor(game, target)) {
-      if (target.weaponType === 'sword') { target.meleeAction = null; target.attackHeld = false; target.attackPressed = false; }
+      if (target.weaponType === 'sword') { target.meleeAction = null; target.meleeVisuals = []; target.attackHeld = false; target.attackPressed = false; }
       target.pendingChoices = 0;
       target.choices = [];
       if (sourceActor && sourceActor !== target && actorList(game).includes(sourceActor)) {
@@ -255,7 +255,7 @@ export function updateCombat(game, dt) {
   game.gems ||= [];
   game.effects ||= [];
   for (const actor of actors) {
-    if (!alive(actor)) { if (actor.weaponType === 'sword') { actor.meleeAction = null; actor.attackHeld = false; actor.attackPressed = false; } continue; }
+    if (!alive(actor)) { if (actor.weaponType === 'sword') { actor.meleeAction = null; actor.meleeVisuals = []; actor.attackHeld = false; actor.attackPressed = false; } continue; }
     tickActor(game, actor, dt);
   }
   for (const monster of monsters) {
@@ -490,6 +490,7 @@ function castMeleeSkill(game, actor, slot, aimX, aimY) {
   const dx = (aimX ?? actor.x + Math.cos(actor.aimAngle || 0)) - actor.x;
   const dy = (aimY ?? actor.y + Math.sin(actor.aimAngle || 0)) - actor.y;
   const angle = dx || dy ? Math.atan2(dy, dx) : actor.aimAngle || 0;
+  const originX = actor.x, originY = actor.y;
   let range = 68, arc = MELEE_BALANCE.arc, windup = 0, coefficient;
   if (id === 'lunge') {
     const distance = 112 + (rank - 1) * 12;
@@ -501,6 +502,12 @@ function castMeleeSkill(game, actor, slot, aimX, aimY) {
     range = 96 + 6 * (rank - 1); arc = 80 * Math.PI / 180; windup = .35; coefficient = 3.5 + .4 * (rank - 1);
   }
   actor.meleeAction = meleeAction(actor, id, angle, range, arc, windup, .08, .25, scaledDamage(actor, (actor.attackDamage || 13) * coefficient));
+  // Presentation can finish its follow-through after the damage/action window.
+  // These snapshots never participate in collision, damage, cooldowns or AI.
+  actor.meleeVisuals = [...(actor.meleeVisuals || []).filter(v => (game.time || 0) - v.startedAt < 1.25), {
+    id: actor.meleeAction.id, kind: id, angle, range, arc, windup,
+    startedAt: game.time || 0, originX, originY, x: actor.x, y: actor.y,
+  }].slice(-3);
   actor.cooldowns ||= {};
   actor.cooldowns[id] = def.cooldown;
   if (!windup) hitMelee(game, actor, actor.meleeAction);
@@ -541,12 +548,24 @@ function circleIntersectsSector(actor, target, action) {
   return false;
 }
 function hitMelee(game, actor, action) {
+  const visual = actor.meleeVisuals?.find(v => v.id === action.id);
+  if (visual && visual.impactAt == null) {
+    visual.impactX = actor.x; visual.impactY = actor.y; visual.impactAt = game.time || 0;
+  }
   for (const target of [...monsterList(game), ...actorList(game)]) {
     const key = target.id ?? target;
     if (!alive(target) || target === actor || action.hitIds.has(key) || (game.phase === 'grace' && isActor(game, target))) continue;
     if (!circleIntersectsSector(actor, target, action) || !hasLine(game.map, actor, target)) continue;
     action.hitIds.add(key);
     const dealt = damage(game, target, action.damage, actor);
+    if (dealt) {
+      target.hitFlash = Math.max(target.hitFlash || 0, .18);
+      if (action.hitIds.size <= 4) pushEffect(game, {
+        kind: 'meleeImpact', x: target.x, y: target.y, angle: action.angle,
+        color: action.kind === 'lunge' ? '#91ecdf' : action.kind === 'whirlwind' ? '#c8b7ef' : '#efbb79',
+        radius: action.kind === 'heavySlash' ? 23 : 15, ttl: .28, maxTtl: .28,
+      });
+    }
     if (dealt && action.kind === 'heavySlash' && alive(target)) {
       const dx = target.x - actor.x, dy = target.y - actor.y, distance = Math.hypot(dx, dy);
       const ux = distance ? dx / distance : Math.cos(action.angle), uy = distance ? dy / distance : Math.sin(action.angle);
