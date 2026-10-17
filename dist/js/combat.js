@@ -163,16 +163,22 @@ function applySkillRank(actor, skillId, skills = SKILLS) {
   actor.skills ||= {};
   actor.skills[skillId] = (actor.skills[skillId] || 0) + 1;
   if (skills[skillId].type === 'active' && !actor.activeSkills.includes(skillId)) actor.activeSkills.push(skillId);
-  if (skillId === 'vitality') {
+  // 被动升级后的属性重算：以前是一串 `if (skillId === 'vitality') ...`，
+  // 新增被动要在这里加分支，漏了就是“选了技能但没效果”。现在集中成一张表。
+  const apply = RANK_EFFECTS[skillId];
+  if (apply) apply(actor);
+}
+
+/** 被动技能升级后的属性重算。键必须与技能目录中的 id 对应。 */
+const RANK_EFFECTS = {
+  vitality(actor) {
     actor.maxHp = levelMaxHp(actor.level) + (actor.skills.vitality || 0) * COMBAT_BALANCE.vitalityMaxHp;
     actor.hp = Math.min(actor.maxHp, actor.hp + COMBAT_BALANCE.vitalityHeal);
-  }
-  if (skillId === 'haste') actor.speed = 100 * (1 + actor.skills.haste * PASSIVE.hasteSpeedPerRank);
-  if (skillId === 'magnet') {
-    actor.pickupRadius = PASSIVE.magnetRadiusBase + actor.skills.magnet * PASSIVE.magnetRadiusPerRank;
-  }
-  if (skillId === 'bladeReach') actor.attackRange = MELEE_BALANCE.range + bladeReachBonus(actor.skills.bladeReach);
-}
+  },
+  haste(actor) { actor.speed = 100 * (1 + actor.skills.haste * PASSIVE.hasteSpeedPerRank); },
+  magnet(actor) { actor.pickupRadius = PASSIVE.magnetRadiusBase + actor.skills.magnet * PASSIVE.magnetRadiusPerRank; },
+  bladeReach(actor) { actor.attackRange = MELEE_BALANCE.range + bladeReachBonus(actor.skills.bladeReach); },
+};
 
 function autoChoose(game, actor) {
   const skills = getSkills(game);
@@ -197,31 +203,45 @@ export function castSkill(game, actor, slot, aimX, aimY) {
   if (!skillId || SKILLS[skillId]?.type !== 'active' || (actor.cooldowns?.[skillId] || 0) > 0) return false;
   const rank = actor.skills?.[skillId] || 0;
   if (!Number.isInteger(rank) || rank < 1 || rank > SKILLS[skillId].maxRank) return false;
+  // 只有登记了释放效果才算可施放；新增主动技能只需在表里加一条。
+  const effect = CAST_EFFECTS[skillId];
+  if (!effect) return false;
   actor.cooldowns ||= {};
   actor.cooldowns[skillId] = skillCooldown(skillId, rank);
   const dx = (aimX ?? actor.x + 1) - actor.x;
   const dy = (aimY ?? actor.y) - actor.y;
   const len = hypot(dx, dy);
   const ux = dx / len, uy = dy / len;
-  if (skillId === 'fireball') {
+  effect(game, actor, rank, ux, uy);
+  return true;
+}
+
+/**
+ * 远程主动技能的释放效果声明表。
+ * 以前是 `if (skillId === 'fireball') ... else if (skillId === 'dash') ... else if (skillId === 'quake')`，
+ * 新增技能要同时改目录、冷却、释放三处。现在释放行为只写在这里。
+ */
+const CAST_EFFECTS = {
+  fireball(game, actor, rank, ux, uy) {
     game.bullets ||= [];
     game.bullets.push({ x: actor.x + ux * ACTIVES.fireball.muzzle, y: actor.y + uy * ACTIVES.fireball.muzzle, vx: ux * ACTIVES.fireball.speed, vy: uy * ACTIVES.fireball.speed,
       radius: ACTIVES.fireball.radiusBase + rank * ACTIVES.fireball.radiusPerRank, damage: scaledDamage(actor, fireballDamage(rank)), ownerId: actor.id, ttl: ACTIVES.fireball.ttl,
       kind: 'fireball', color: SKILLS.fireball.color, splash: fireballSplash(rank) });
     pushEffect(game, { x: actor.x + ux * 18, y: actor.y + uy * 18, kind: 'burst', color: SKILLS.fireball.color, radius: ACTIVES.fireball.effectRadius, ttl: ACTIVES.fireball.effectTtl });
-  } else if (skillId === 'dash') {
+  },
+  dash(game, actor, rank, ux, uy) {
     // Skills may move actors; normal movement and mud slow remain core-owned.
     moveEntity(game.map, actor, ux * dashDistance(rank), uy * dashDistance(rank));
     const cx = actor.x, cy = actor.y;
     areaDamage(game, actor, cx, cy, dashRadius(rank), scaledDamage(actor, dashDamage(rank)), SKILLS.dash.color, 'slash');
     pushEffect(game, { x: cx, y: cy, kind: 'slash', color: SKILLS.dash.color, radius: ACTIVES.dash.effectRadiusBase + rank * ACTIVES.dash.effectRadiusPerRank, ttl: ACTIVES.dash.effectTtl });
-  } else if (skillId === 'quake') {
+  },
+  quake(game, actor, rank) {
     const radius = quakeRadius(rank);
     areaDamage(game, actor, actor.x, actor.y, radius, scaledDamage(actor, quakeDamage(rank)), SKILLS.quake.color, 'burst');
     pushEffect(game, { x: actor.x, y: actor.y, kind: 'ring', color: SKILLS.quake.color, radius, ttl: ACTIVES.quake.effectTtl });
-  }
-  return true;
-}
+  },
+};
 
 export function damage(game, target, amount, source = null) {
   if (!alive(target) || !(amount > 0)) return 0;
@@ -514,34 +534,51 @@ function castMeleeSkill(game, actor, slot, aimX, aimY) {
   const id = actor.activeSkills?.[slot], def = MELEE_SKILLS[id], rank = actor.skills?.[id] || 0;
   if (!def || def.type !== 'active' || !Number.isInteger(rank) || rank < 1 || rank > def.maxRank || (actor.cooldowns?.[id] || 0) > 0) return false;
   if (actor.meleeAction && actor.meleeAction.kind !== 'basic') return false;
+  // 几何参数也由声明表提供，新增刀技只需加一条；缺条目则不可施放。
+  const shape = MELEE_SHAPES[id];
+  if (!shape) return false;
   const dx = (aimX ?? actor.x + Math.cos(actor.aimAngle || 0)) - actor.x;
   const dy = (aimY ?? actor.y + Math.sin(actor.aimAngle || 0)) - actor.y;
   const angle = dx || dy ? Math.atan2(dy, dx) : actor.aimAngle || 0;
   const originX = actor.x, originY = actor.y;
-  let range = MELEE_BALANCE.range, arc = MELEE_BALANCE.arc, windup = 0, coefficient;
-  if (id === 'lunge') {
-    const distance = lungeDistance(rank);
-    moveEntity(game.map, actor, Math.cos(angle) * distance, Math.sin(angle) * distance);
-    coefficient = lungeCoefficient(rank);
-  } else if (id === 'whirlwind') {
-    range = whirlwindRadius(rank); arc = Math.PI * 2; coefficient = whirlwindCoefficient(rank);
-  } else {
-    range = heavySlashRange(rank); arc = ACTIVES.heavySlash.arcDeg * Math.PI / 180;
-    windup = ACTIVES.heavySlash.windup; coefficient = heavySlashCoefficient(rank);
-  }
-  actor.meleeAction = meleeAction(actor, id, angle, range, arc, windup, MELEE_ACTIVE_WINDOW.active, MELEE_ACTIVE_WINDOW.recovery,
-    scaledDamage(actor, (actor.attackDamage || COMBAT_BALANCE.baseAttackDamage) * coefficient));
+  const geometry = shape(game, actor, rank, angle);
+  actor.meleeAction = meleeAction(actor, id, angle, geometry.range, geometry.arc, geometry.windup,
+    MELEE_ACTIVE_WINDOW.active, MELEE_ACTIVE_WINDOW.recovery,
+    scaledDamage(actor, (actor.attackDamage || COMBAT_BALANCE.baseAttackDamage) * geometry.coefficient));
   // Presentation can finish its follow-through after the damage/action window.
   // These snapshots never participate in collision, damage, cooldowns or AI.
   actor.meleeVisuals = [...(actor.meleeVisuals || []).filter(v => (game.time || 0) - v.startedAt < 1.25), {
-    id: actor.meleeAction.id, kind: id, angle, range, arc, windup,
+    id: actor.meleeAction.id, kind: id, angle, range: geometry.range, arc: geometry.arc, windup: geometry.windup,
     startedAt: game.time || 0, originX, originY, x: actor.x, y: actor.y,
   }].slice(-3);
   actor.cooldowns ||= {};
   actor.cooldowns[id] = def.cooldown;
-  if (!windup) hitMelee(game, actor, actor.meleeAction);
+  if (!geometry.windup) hitMelee(game, actor, actor.meleeAction);
   return true;
 }
+
+/**
+ * 近战主动技能的几何声明表。
+ * 每个函数返回 {range, arc, windup, coefficient}，并可在其中执行位移等副作用。
+ * 以前是 `if (id === 'lunge') ... else if (id === 'whirlwind') ... else { 重斩 }`
+ * —— 注意原来的 else 分支实际上是“默认当成重斩”，新增刀技会被静默当成重斩。
+ */
+const MELEE_SHAPES = {
+  lunge(game, actor, rank, angle) {
+    const distance = lungeDistance(rank);
+    moveEntity(game.map, actor, Math.cos(angle) * distance, Math.sin(angle) * distance);
+    return { range: MELEE_BALANCE.range, arc: MELEE_BALANCE.arc, windup: 0, coefficient: lungeCoefficient(rank) };
+  },
+  whirlwind(game, actor, rank) {
+    return { range: whirlwindRadius(rank), arc: Math.PI * 2, windup: 0, coefficient: whirlwindCoefficient(rank) };
+  },
+  heavySlash(game, actor, rank) {
+    return {
+      range: heavySlashRange(rank), arc: ACTIVES.heavySlash.arcDeg * Math.PI / 180,
+      windup: ACTIVES.heavySlash.windup, coefficient: heavySlashCoefficient(rank),
+    };
+  },
+};
 function tickMelee(game, actor, dt) {
   actor.attackRange = MELEE_BALANCE.range + bladeReachBonus(actor.skills?.bladeReach || 0);
   const pressed = actor.attackPressed;
