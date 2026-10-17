@@ -1,1 +1,17 @@
-{"name":"emberfall-arena","version":"1.0.0","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.js","simulate":"node tests/simulate.js","duels":"node tests/duels.js","performance":"node tests/performance.js","start":"node server.mjs","melee-duels":"node tests/melee-duels.js"}}
+{
+  "name": "emberfall-arena",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "verify": "node tests/verify.mjs",
+    "snapshot:write": "node .local/state-snapshot.mjs write .local/baseline-output/state-baseline.json",
+    "snapshot:check": "node .local/state-snapshot.mjs check .local/baseline-output/state-baseline.json",
+    "simulate": "node tests/simulate.js",
+    "duels": "node tests/duels.js",
+    "performance": "node tests/performance.js",
+    "start": "node server.mjs",
+    "melee-duels": "node tests/melee-duels.js"
+  }
+}

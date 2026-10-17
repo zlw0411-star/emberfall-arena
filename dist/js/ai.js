@@ -1,4 +1,8 @@
 import { blocked, lineClear } from './world.js';
+// 近战技能的触及范围必须与 combat.js 用同一份常量，否则 AI 会在
+// “以为打得到”而实际打不到的距离开技能。本模块不能 import combat.js（循环依赖），
+// 但 balance.js 是零依赖的数据层，可以安全共用。
+import { heavySlashRange, lungeDistance, whirlwindRadius } from './balance.js';
 
 const GRID = 48;
 const BODY = 14;
@@ -433,7 +437,7 @@ function thinkMelee(game, actor) {
       if ((actor.cooldowns?.[id] || 0) > 0) continue;
       const rank = actor.skills?.[id] || 1;
       if (id === 'lunge') {
-        const reach = 112 + (rank - 1) * 12;
+        const reach = lungeDistance(rank);
         const aim = retreating ? { x: actor.x + mx * reach, y: actor.y + my * reach } : target;
         if (!aim || (retreating ? Math.hypot(mx, my) < 0.1 : (!visible || d <= range || d > reach + range * 0.75))) continue;
         const angle = Math.atan2(aim.y - actor.y, aim.x - actor.x);
@@ -441,8 +445,8 @@ function thinkMelee(game, actor) {
         if (!lineClear(game.map, actor, end, actor.radius || 12) || blocked(game.map, end.x, end.y, actor.radius || 12) || safeTarget(game, { ...actor, ...end })) continue;
         direction = aim; castSlot = i; break;
       }
-      if (id === 'whirlwind' && threats.some(t => distance(actor, t) <= 78 + 6 * (rank - 1) && lineClear(game.map, actor, t, 0))) { castSlot = i; break; }
-      if (id === 'heavySlash' && !retreating && !evading && visible && d <= 96 + 6 * (rank - 1)) { direction = target; castSlot = i; break; }
+      if (id === 'whirlwind' && threats.some(t => distance(actor, t) <= whirlwindRadius(rank) && lineClear(game.map, actor, t, 0))) { castSlot = i; break; }
+      if (id === 'heavySlash' && !retreating && !evading && visible && d <= heavySlashRange(rank)) { direction = target; castSlot = i; break; }
     }
   }
   actor.ai.lastAim = { x: direction.x, y: direction.y };

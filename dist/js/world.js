@@ -117,7 +117,12 @@ export function moveEntity(map, entity, dx, dy) {
   return entity;
 }
 
-export function randomFree(map, rng = Math.random, padding = 24) {
+export function randomFree(map, rng, padding = 24) {
+  // rng 必传：以前默认回退到 Math.random，一旦某个调用点漏传，
+  // 地图就会静默变成不可复现的，而所有测试仍会通过。宁可直接报错。
+  if (typeof rng !== 'function') {
+    throw new TypeError('randomFree 需要一个确定性的 rng 函数（不要回退到 Math.random）');
+  }
   for (let i = 0; i < 900; i++) {
     const x = padding + rng() * (map.width - padding * 2);
     const y = padding + rng() * (map.height - padding * 2);

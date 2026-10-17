@@ -1,24 +1,34 @@
 // Combat simulation. This module deliberately has no DOM or external dependencies.
 import { lineClear, moveEntity } from './world.js';
 import { normalizeMode, MELEE_BALANCE } from './modes.js';
+import {
+  ACTIVES, ATTACK, DESCRIPTIONS, MELEE_ACTIVE_WINDOW, PASSIVE,
+  bladeReachBonus, dashDamage, dashDistance, dashRadius,
+  fireballDamage, fireballSplash, heavySlashCoefficient, heavySlashRange,
+  lungeCoefficient, lungeDistance, quakeDamage, quakeRadius,
+  skillCooldown, whirlwindCoefficient, whirlwindRadius,
+} from './balance.js';
+
+// 技能目录只声明「是什么」（类型/图标/上限），数值一律来自 balance.js，
+// 描述文本由数值生成 —— 调平衡时不会再出现代码与文案不同步。
 export const SKILLS = {
-  fireball: { name: '火球', description: '每级伤害36→63，爆炸半径56→80，冷却3.86→2.86秒（共4级）', icon: '●', color: '#ff8a42', type: 'active', maxRank: 4, cooldown: 4.2 },
-  dash: { name: '震荡冲刺', description: '冲刺112→148像素；冲击伤害31→55、半径47→62（共4级）', icon: '➤', color: '#67e8f9', type: 'active', maxRank: 4, cooldown: 6.5 },
-  quake: { name: '震荡波', description: '范围伤害29→56、半径103→154（共4级）', icon: '◎', color: '#c084fc', type: 'active', maxRank: 4, cooldown: 8 },
-  power: { name: '强力弹丸', description: '每级所有攻击伤害+10%，最多+50%', icon: '✦', color: '#fb7185', type: 'passive', maxRank: 5, cooldown: 0 },
-  haste: { name: '迅捷', description: '每级移速+8%、攻击间隔缩短6.5%，最多移速+40%', icon: '»', color: '#facc15', type: 'passive', maxRank: 5, cooldown: 0 },
-  vitality: { name: '坚韧', description: '每级最大生命+30并立即恢复30；每2.5秒恢复0.57→1.45生命', icon: '♥', color: '#4ade80', type: 'passive', maxRank: 5, cooldown: 0 },
-  magnet: { name: '拾荒者', description: '每级拾取半径+18像素，从30扩大到120', icon: '✧', color: '#60a5fa', type: 'passive', maxRank: 5, cooldown: 0 },
-  multishot: { name: '连射', description: '每级攻击间隔缩短5.5%、弹速+18；4级起每次攻击额外发射1枚弹丸', icon: '⁝', color: '#f0abfc', type: 'passive', maxRank: 5, cooldown: 0 },
+  fireball: { name: ACTIVES.fireball.name, description: DESCRIPTIONS.fireball, icon: ACTIVES.fireball.icon, color: ACTIVES.fireball.color, type: 'active', maxRank: ACTIVES.fireball.maxRank, cooldown: ACTIVES.fireball.cooldown },
+  dash: { name: ACTIVES.dash.name, description: DESCRIPTIONS.dash, icon: ACTIVES.dash.icon, color: ACTIVES.dash.color, type: 'active', maxRank: ACTIVES.dash.maxRank, cooldown: ACTIVES.dash.cooldown },
+  quake: { name: ACTIVES.quake.name, description: DESCRIPTIONS.quake, icon: ACTIVES.quake.icon, color: ACTIVES.quake.color, type: 'active', maxRank: ACTIVES.quake.maxRank, cooldown: ACTIVES.quake.cooldown },
+  power: { name: '强力弹丸', description: DESCRIPTIONS.power, icon: '✦', color: '#fb7185', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
+  haste: { name: '迅捷', description: DESCRIPTIONS.haste, icon: '»', color: '#facc15', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
+  vitality: { name: '坚韧', description: DESCRIPTIONS.vitality, icon: '♥', color: '#4ade80', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
+  magnet: { name: '拾荒者', description: DESCRIPTIONS.magnet, icon: '✧', color: '#60a5fa', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
+  multishot: { name: '连射', description: DESCRIPTIONS.multishot, icon: '⁝', color: '#f0abfc', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
 };
 
 export const MELEE_SKILLS = {
-  lunge: { name: '突进斩', description: '向瞄准方向突进112→148像素，挥刀造成2.8→3.7倍伤害', icon: '➤', color: '#67e8f9', type: 'active', maxRank: 4, cooldown: 7 },
-  whirlwind: { name: '旋风斩', description: '周身78→96像素斩击，造成3→3.9倍伤害', icon: '◎', color: '#c084fc', type: 'active', maxRank: 4, cooldown: 8 },
-  heavySlash: { name: '重斩', description: '蓄力0.35秒，斩击96→114像素，造成3.5→4.7倍伤害并击退', icon: '✦', color: '#ff8a42', type: 'active', maxRank: 4, cooldown: 8 },
+  lunge: { name: ACTIVES.lunge.name, description: DESCRIPTIONS.lunge, icon: ACTIVES.lunge.icon, color: ACTIVES.lunge.color, type: 'active', maxRank: ACTIVES.lunge.maxRank, cooldown: ACTIVES.lunge.cooldown },
+  whirlwind: { name: ACTIVES.whirlwind.name, description: DESCRIPTIONS.whirlwind, icon: ACTIVES.whirlwind.icon, color: ACTIVES.whirlwind.color, type: 'active', maxRank: ACTIVES.whirlwind.maxRank, cooldown: ACTIVES.whirlwind.cooldown },
+  heavySlash: { name: ACTIVES.heavySlash.name, description: DESCRIPTIONS.heavySlash, icon: ACTIVES.heavySlash.icon, color: ACTIVES.heavySlash.color, type: 'active', maxRank: ACTIVES.heavySlash.maxRank, cooldown: ACTIVES.heavySlash.cooldown },
   power: { ...SKILLS.power, name: '刀锋强化' },
   haste: { ...SKILLS.haste }, vitality: { ...SKILLS.vitality }, magnet: { ...SKILLS.magnet },
-  bladeReach: { name: '刀势延伸', description: '每级普攻范围+4像素、扇形角度+6°', icon: '⌁', color: '#f0abfc', type: 'passive', maxRank: 5, cooldown: 0 },
+  bladeReach: { name: '刀势延伸', description: DESCRIPTIONS.bladeReach, icon: '⌁', color: '#f0abfc', type: 'passive', maxRank: PASSIVE.bladeReachMaxRank, cooldown: 0 },
 };
 export function getSkills(gameOrMode) {
   const mode = typeof gameOrMode === 'string' ? gameOrMode : gameOrMode?.mode ?? (gameOrMode?.weaponType === 'sword' ? 'melee' : 'classic');
@@ -44,13 +54,14 @@ export const COMBAT_BALANCE = Object.freeze({
   baseMaxHp: 280,
   levelMaxHp: 8,
   levelHeal: 8,
-  baseAttackDamage: 13,
+  baseAttackDamage: ATTACK.baseDamage,
   levelAttackDamage: 0.4,
-  powerDamagePerRank: 0.1,
+  // 以下三项与被动技能共用同一常量，避免两处各写一份。
+  powerDamagePerRank: PASSIVE.powerDamagePerRank,
   actorKillXpBase: 40,
   actorKillXpPerLevel: 5,
-  vitalityMaxHp: 30,
-  vitalityHeal: 30,
+  vitalityMaxHp: PASSIVE.vitalityHpPerRank,
+  vitalityHeal: PASSIVE.vitalityHealOnRank,
   healingGemValue: 40,
 });
 
@@ -63,12 +74,22 @@ const monsterList = game => Array.isArray(game?.monsters) ? game.monsters : [];
 const alive = entity => entity && entity.alive !== false && (entity.hp == null || entity.hp > 0);
 const isActor = (game, entity) => !!entity && (entity.isPlayer === true || actorList(game).includes(entity));
 
+/**
+ * 确定性红线：任何需要随机数的地方都必须用 game.rng。
+ * 以前写的是 `game?.rng || Math.random`，漏传就静默降级成不可复现，
+ * 而这类 bug 不会让任何测试变红 —— 只会让“同种子逐帧全等”的验收失效。
+ */
+function requireRng(game) {
+  if (game && typeof game.rng === 'function') return game.rng;
+  throw new TypeError('缺少 game.rng：模拟必须可复现，禁止回退到 Math.random');
+}
+
 export function createActor(id, name, x, y, isPlayer = false, color = '#74d680') {
   return {
     id, name, x, y, radius: 12, isPlayer, color, alive: true,
     hp: COMBAT_BALANCE.baseMaxHp, maxHp: COMBAT_BALANCE.baseMaxHp, level: 1, xp: 0, kills: 0, monsterKills: 0, damageDealt: 0,
-    speed: 100, attackDamage: COMBAT_BALANCE.baseAttackDamage, attackInterval: 0.88, attackRange: 220,
-    attackTimer: 0.18, pickupRadius: 30,
+    speed: 100, attackDamage: COMBAT_BALANCE.baseAttackDamage, attackInterval: ATTACK.baseInterval, attackRange: ATTACK.baseRange,
+    attackTimer: 0.18, pickupRadius: PASSIVE.magnetRadiusBase,
     skills: {}, activeSkills: [], cooldowns: {}, pendingChoices: 0, choices: [],
     regenTimer: 0, hitFlash: 0, combatSpeedMult: 1, speedBoostT: 0,
     damageTakenByKind: { actor: 0, monster: 0, trap: 0, zone: 0 },
@@ -111,7 +132,8 @@ export function getChoices(game, actor) {
     actor.choices = [];
     return [];
   }
-  const rng = game?.rng || Math.random;
+  // 选技必须消耗 game.rng 以保持同种子可复现；缺失时直接报错。
+  const rng = requireRng(game);
   const pool = [...available];
   const choices = [];
   while (pool.length && choices.length < 3) {
@@ -145,9 +167,11 @@ function applySkillRank(actor, skillId, skills = SKILLS) {
     actor.maxHp = levelMaxHp(actor.level) + (actor.skills.vitality || 0) * COMBAT_BALANCE.vitalityMaxHp;
     actor.hp = Math.min(actor.maxHp, actor.hp + COMBAT_BALANCE.vitalityHeal);
   }
-  if (skillId === 'haste') actor.speed = 100 * (1 + actor.skills.haste * 0.08);
-  if (skillId === 'magnet') actor.pickupRadius = 30 + actor.skills.magnet * 18;
-  if (skillId === 'bladeReach') actor.attackRange = MELEE_BALANCE.range + Math.min(5, actor.skills.bladeReach) * 4;
+  if (skillId === 'haste') actor.speed = 100 * (1 + actor.skills.haste * PASSIVE.hasteSpeedPerRank);
+  if (skillId === 'magnet') {
+    actor.pickupRadius = PASSIVE.magnetRadiusBase + actor.skills.magnet * PASSIVE.magnetRadiusPerRank;
+  }
+  if (skillId === 'bladeReach') actor.attackRange = MELEE_BALANCE.range + bladeReachBonus(actor.skills.bladeReach);
 }
 
 function autoChoose(game, actor) {
@@ -174,28 +198,27 @@ export function castSkill(game, actor, slot, aimX, aimY) {
   const rank = actor.skills?.[skillId] || 0;
   if (!Number.isInteger(rank) || rank < 1 || rank > SKILLS[skillId].maxRank) return false;
   actor.cooldowns ||= {};
-  actor.cooldowns[skillId] = SKILLS[skillId].cooldown * (skillId === 'fireball' ? Math.max(0.58, 1 - rank * 0.08) : Math.max(0.64, 1 - rank * 0.06));
+  actor.cooldowns[skillId] = skillCooldown(skillId, rank);
   const dx = (aimX ?? actor.x + 1) - actor.x;
   const dy = (aimY ?? actor.y) - actor.y;
   const len = hypot(dx, dy);
   const ux = dx / len, uy = dy / len;
   if (skillId === 'fireball') {
     game.bullets ||= [];
-    game.bullets.push({ x: actor.x + ux * 15, y: actor.y + uy * 15, vx: ux * 310, vy: uy * 310,
-      radius: 9 + rank, damage: scaledDamage(actor, 27 + rank * 9), ownerId: actor.id, ttl: 2.2,
-      kind: 'fireball', color: SKILLS.fireball.color, splash: 48 + rank * 8 });
-    pushEffect(game, { x: actor.x + ux * 18, y: actor.y + uy * 18, kind: 'burst', color: SKILLS.fireball.color, radius: 20, ttl: 0.35 });
+    game.bullets.push({ x: actor.x + ux * ACTIVES.fireball.muzzle, y: actor.y + uy * ACTIVES.fireball.muzzle, vx: ux * ACTIVES.fireball.speed, vy: uy * ACTIVES.fireball.speed,
+      radius: ACTIVES.fireball.radiusBase + rank * ACTIVES.fireball.radiusPerRank, damage: scaledDamage(actor, fireballDamage(rank)), ownerId: actor.id, ttl: ACTIVES.fireball.ttl,
+      kind: 'fireball', color: SKILLS.fireball.color, splash: fireballSplash(rank) });
+    pushEffect(game, { x: actor.x + ux * 18, y: actor.y + uy * 18, kind: 'burst', color: SKILLS.fireball.color, radius: ACTIVES.fireball.effectRadius, ttl: ACTIVES.fireball.effectTtl });
   } else if (skillId === 'dash') {
     // Skills may move actors; normal movement and mud slow remain core-owned.
-    const dashDistance = 100 + rank * 12;
-    moveEntity(game.map, actor, ux * dashDistance, uy * dashDistance);
+    moveEntity(game.map, actor, ux * dashDistance(rank), uy * dashDistance(rank));
     const cx = actor.x, cy = actor.y;
-    areaDamage(game, actor, cx, cy, 42 + rank * 5, scaledDamage(actor, 23 + rank * 8), SKILLS.dash.color, 'slash');
-    pushEffect(game, { x: cx, y: cy, kind: 'slash', color: SKILLS.dash.color, radius: 54 + rank * 6, ttl: 0.35 });
+    areaDamage(game, actor, cx, cy, dashRadius(rank), scaledDamage(actor, dashDamage(rank)), SKILLS.dash.color, 'slash');
+    pushEffect(game, { x: cx, y: cy, kind: 'slash', color: SKILLS.dash.color, radius: ACTIVES.dash.effectRadiusBase + rank * ACTIVES.dash.effectRadiusPerRank, ttl: ACTIVES.dash.effectTtl });
   } else if (skillId === 'quake') {
-    const radius = 86 + rank * 17;
-    areaDamage(game, actor, actor.x, actor.y, radius, scaledDamage(actor, 20 + rank * 9), SKILLS.quake.color, 'burst');
-    pushEffect(game, { x: actor.x, y: actor.y, kind: 'ring', color: SKILLS.quake.color, radius, ttl: 0.6 });
+    const radius = quakeRadius(rank);
+    areaDamage(game, actor, actor.x, actor.y, radius, scaledDamage(actor, quakeDamage(rank)), SKILLS.quake.color, 'burst');
+    pushEffect(game, { x: actor.x, y: actor.y, kind: 'ring', color: SKILLS.quake.color, radius, ttl: ACTIVES.quake.effectTtl });
   }
   return true;
 }
@@ -277,10 +300,10 @@ function tickActor(game, actor, dt) {
   }
   actor.regenTimer = (actor.regenTimer || 0) + dt;
   const vitality = actor.skills?.vitality || 0;
-  if (vitality && actor.hp < actor.maxHp && actor.regenTimer >= 2.5) {
-    const ticks = Math.floor(actor.regenTimer / 2.5);
-    actor.regenTimer -= ticks * 2.5;
-    actor.hp = Math.min(actor.maxHp, actor.hp + ticks * (0.35 + vitality * 0.22));
+  if (vitality && actor.hp < actor.maxHp && actor.regenTimer >= PASSIVE.vitalityRegenInterval) {
+    const ticks = Math.floor(actor.regenTimer / PASSIVE.vitalityRegenInterval);
+    actor.regenTimer -= ticks * PASSIVE.vitalityRegenInterval;
+    actor.hp = Math.min(actor.maxHp, actor.hp + ticks * (PASSIVE.vitalityRegenBase + vitality * PASSIVE.vitalityRegenPerRank));
   }
   if (actor.pendingChoices > 0 && actor.isPlayer !== true) autoChoose(game, actor);
   if (getSkills(game) === MELEE_SKILLS || actor.weaponType === 'sword') { tickMelee(game, actor, dt); return; }
@@ -317,15 +340,16 @@ function fireBasic(game, actor, target) {
   const dx = target.x - actor.x, dy = target.y - actor.y, d = hypot(dx, dy);
   const haste = actor.skills?.haste || 0;
   const multi = actor.skills?.multishot || 0;
-  const rate = Math.max(0.34, (actor.attackInterval || 0.88) * Math.max(0.56, 1 - haste * 0.065 - multi * 0.055));
+  const rate = Math.max(ATTACK.minInterval, (actor.attackInterval || ATTACK.baseInterval)
+    * Math.max(ATTACK.minIntervalMultiplier, 1 - haste * ATTACK.hasteIntervalReduction - multi * ATTACK.multishotIntervalReduction));
   actor.attackTimer = rate;
-  const count = multi >= 4 ? 2 : 1;
+  const count = multi >= ATTACK.multishotExtraAtRank ? 2 : 1;
   for (let i = 0; i < count; i++) {
     const angle = Math.atan2(dy, dx) + (i ? 0.10 : 0);
-    const speed = 350 + multi * 18;
+    const speed = ATTACK.bulletSpeed + multi * ATTACK.multishotSpeedBonus;
     game.bullets.push({ x: actor.x, y: actor.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
-      radius: 4, damage: scaledDamage(actor, actor.attackDamage || 13), ownerId: actor.id,
-      ttl: Math.max(0.45, (actor.attackRange || 220) / speed + 0.16), kind: 'basic', color: actor.color || '#fff1a8' });
+      radius: ATTACK.bulletRadius, damage: scaledDamage(actor, actor.attackDamage || COMBAT_BALANCE.baseAttackDamage), ownerId: actor.id,
+      ttl: Math.max(ATTACK.bulletTtlFloor, (actor.attackRange || ATTACK.baseRange) / speed + ATTACK.bulletTtlPadding), kind: 'basic', color: actor.color || '#fff1a8' });
   }
 }
 
@@ -423,7 +447,7 @@ function tickEffects(game, dt) {
   if (Array.isArray(game.events)) game.events = game.events.slice(-30);
 }
 
-function dropGem(game, monster, value) {
+export function dropGem(game, monster, value) {
   game.gems ||= [];
   game.nextId ??= 1;
   if (monster.type === 'brute' || value >= 12) {
@@ -431,7 +455,7 @@ function dropGem(game, monster, value) {
   } else {
     game.gems.push({ id: game.nextId++, x: monster.x, y: monster.y, value, kind: 'xp', radius: 5, ttl: 60 });
   }
-  if (monster.type === 'brute' && (game.rng || Math.random)() < 0.28) game.gems.push({ id: game.nextId++, x: monster.x + 8, y: monster.y, value: COMBAT_BALANCE.healingGemValue, kind: 'heal', radius: 6, ttl: 45 });
+  if (monster.type === 'brute' && requireRng(game)() < 0.28) game.gems.push({ id: game.nextId++, x: monster.x + 8, y: monster.y, value: COMBAT_BALANCE.healingGemValue, kind: 'heal', radius: 6, ttl: 45 });
 }
 
 function canLearnSkill(actor, skillId, skills = SKILLS) {
@@ -491,17 +515,19 @@ function castMeleeSkill(game, actor, slot, aimX, aimY) {
   const dy = (aimY ?? actor.y + Math.sin(actor.aimAngle || 0)) - actor.y;
   const angle = dx || dy ? Math.atan2(dy, dx) : actor.aimAngle || 0;
   const originX = actor.x, originY = actor.y;
-  let range = 68, arc = MELEE_BALANCE.arc, windup = 0, coefficient;
+  let range = MELEE_BALANCE.range, arc = MELEE_BALANCE.arc, windup = 0, coefficient;
   if (id === 'lunge') {
-    const distance = 112 + (rank - 1) * 12;
+    const distance = lungeDistance(rank);
     moveEntity(game.map, actor, Math.cos(angle) * distance, Math.sin(angle) * distance);
-    coefficient = 2.8 + .3 * (rank - 1);
+    coefficient = lungeCoefficient(rank);
   } else if (id === 'whirlwind') {
-    range = 78 + 6 * (rank - 1); arc = Math.PI * 2; coefficient = 3 + .3 * (rank - 1);
+    range = whirlwindRadius(rank); arc = Math.PI * 2; coefficient = whirlwindCoefficient(rank);
   } else {
-    range = 96 + 6 * (rank - 1); arc = 80 * Math.PI / 180; windup = .35; coefficient = 3.5 + .4 * (rank - 1);
+    range = heavySlashRange(rank); arc = ACTIVES.heavySlash.arcDeg * Math.PI / 180;
+    windup = ACTIVES.heavySlash.windup; coefficient = heavySlashCoefficient(rank);
   }
-  actor.meleeAction = meleeAction(actor, id, angle, range, arc, windup, .08, .25, scaledDamage(actor, (actor.attackDamage || 13) * coefficient));
+  actor.meleeAction = meleeAction(actor, id, angle, range, arc, windup, MELEE_ACTIVE_WINDOW.active, MELEE_ACTIVE_WINDOW.recovery,
+    scaledDamage(actor, (actor.attackDamage || COMBAT_BALANCE.baseAttackDamage) * coefficient));
   // Presentation can finish its follow-through after the damage/action window.
   // These snapshots never participate in collision, damage, cooldowns or AI.
   actor.meleeVisuals = [...(actor.meleeVisuals || []).filter(v => (game.time || 0) - v.startedAt < 1.25), {
@@ -514,7 +540,7 @@ function castMeleeSkill(game, actor, slot, aimX, aimY) {
   return true;
 }
 function tickMelee(game, actor, dt) {
-  actor.attackRange = MELEE_BALANCE.range + Math.min(5, actor.skills?.bladeReach || 0) * 4;
+  actor.attackRange = MELEE_BALANCE.range + bladeReachBonus(actor.skills?.bladeReach || 0);
   const pressed = actor.attackPressed;
   actor.attackPressed = false;
   const action = actor.meleeAction;
@@ -526,12 +552,13 @@ function tickMelee(game, actor, dt) {
     if (action.elapsed >= action.windup + action.active + action.recovery) actor.meleeAction = null;
   }
   if (!actor.meleeAction && actor.attackTimer <= 0 && (pressed || actor.attackHeld)) {
-    const reach = Math.min(5, actor.skills?.bladeReach || 0);
-    const interval = (actor.attackInterval || MELEE_BALANCE.interval) * Math.max(.56, 1 - (actor.skills?.haste || 0) * .065);
+    const reach = Math.min(PASSIVE.bladeReachMaxRank, actor.skills?.bladeReach || 0);
+    const interval = (actor.attackInterval || MELEE_BALANCE.interval)
+      * Math.max(.56, 1 - (actor.skills?.haste || 0) * ATTACK.hasteIntervalReduction);
     actor.attackTimer = interval;
-    actor.meleeAction = meleeAction(actor, 'basic', actor.aimAngle || 0, MELEE_BALANCE.range + reach * 4,
-      MELEE_BALANCE.arc + reach * Math.PI / 30, MELEE_BALANCE.windup, MELEE_BALANCE.active,
-      Math.max(0, interval - MELEE_BALANCE.windup - MELEE_BALANCE.active), scaledDamage(actor, (actor.attackDamage || 13) * MELEE_BALANCE.damageMultiplier));
+    actor.meleeAction = meleeAction(actor, 'basic', actor.aimAngle || 0, MELEE_BALANCE.range + bladeReachBonus(reach),
+      MELEE_BALANCE.arc + reach * PASSIVE.bladeReachArcDegPerRank * Math.PI / 180, MELEE_BALANCE.windup, MELEE_BALANCE.active,
+      Math.max(0, interval - MELEE_BALANCE.windup - MELEE_BALANCE.active), scaledDamage(actor, (actor.attackDamage || COMBAT_BALANCE.baseAttackDamage) * MELEE_BALANCE.damageMultiplier));
   }
 }
 function circleIntersectsSector(actor, target, action) {
