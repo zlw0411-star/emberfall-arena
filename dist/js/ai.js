@@ -1,4 +1,5 @@
 import { blocked, lineClear } from './world.js';
+import { modeOf } from './modes.js';
 // 近战技能的触及范围必须与 combat.js 用同一份常量，否则 AI 会在
 // “以为打得到”而实际打不到的距离开技能。本模块不能 import combat.js（循环依赖），
 // 但 balance.js 是零依赖的数据层，可以安全共用。
@@ -287,7 +288,16 @@ function aimAndCast(game, actor, target, retreatVector = null, retreating = fals
 }
 
 export function think(game, actor, dt = 1 / 30) {
-  if (game?.mode === 'melee') return thinkMelee(game, actor);
+  // 按模式的 aiKey 查决策器，不再硬编码 mode === 'melee'。
+  const thinker = THINKERS[modeOf(game?.mode).aiKey];
+  if (thinker) return thinker(game, actor, dt);
+  return thinkRanged(game, actor, dt);
+}
+
+/** AI 决策器：键名由 MODES[mode].aiKey 指定。经典远程不需要额外分支。 */
+const THINKERS = { melee: (game, actor) => thinkMelee(game, actor) };
+
+function thinkRanged(game, actor, dt) {
   if (!game?.map || !actor || !alive(actor)) return { mx: 0, my: 0, aimX: actor?.x || 0, aimY: actor?.y || 0, castSlot: -1 };
   if (!actor.ai) actor.ai = {};
   const threats = getThreats(game, actor);

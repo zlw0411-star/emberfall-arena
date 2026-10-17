@@ -35,24 +35,27 @@ function step(name, command, args, env = {}) {
   }
 }
 
-console.log('1/5 unit tests');
+console.log('1/6 unit tests');
 // Windows 下 npm 的 glob 由 shell 展开，node 自身不展开通配符，
 // 所以这里显式传 shell，并保持参数固定（无用户输入）。
-step('unit tests', process.execPath, ['--test', 'tests/contracts.test.js', 'tests/controls.test.js', 'tests/determinism.test.js', 'tests/melee.test.js', 'tests/melee-vfx.test.js', 'tests/monsters.test.js', 'tests/skills.test.js']);
+step('unit tests', process.execPath, ['--test', 'tests/contracts.test.js', 'tests/controls.test.js', 'tests/determinism.test.js', 'tests/melee.test.js', 'tests/melee-vfx.test.js', 'tests/modes.test.js', 'tests/monsters.test.js', 'tests/skills.test.js']);
 
-console.log('2/5 full-match simulation (classic + melee, 60Hz)');
+console.log('2/6 full-match simulation (classic + melee, 60Hz)');
 step('simulate classic 60Hz', process.execPath, ['tests/simulate.js', 'sim-101', 'sim-202', 'sim-303'], { SIM_HZ: '60' });
 step('simulate melee 60Hz', process.execPath, ['tests/simulate.js', 'sim-101', 'sim-202', 'sim-303'], { SIM_HZ: '60', GAME_MODE: 'melee' });
 
-console.log('3/5 duel benchmarks');
+console.log('3/6 DOM smoke (app.js + renderer, classic/melee/third mode)');
+step('dom smoke', process.execPath, ['.local/dom-smoke.mjs']);
+
+console.log('4/6 duel benchmarks');
 step('duels (ranged)', process.execPath, ['tests/duels.js']);
 step('duels (melee)', process.execPath, ['tests/melee-duels.js']);
 
-console.log('4/5 performance');
+console.log('5/6 performance');
 step('performance classic', process.execPath, ['tests/performance.js']);
 step('performance melee', process.execPath, ['tests/performance.js'], { GAME_MODE: 'melee' });
 
-console.log('5/5 frame-by-frame state identity vs baseline');
+console.log('6/6 frame-by-frame state identity vs baseline');
 if (!existsSync(BASELINE)) {
   console.log(`  SKIP  no baseline at ${BASELINE}; run: node .local/state-snapshot.mjs write ${BASELINE}`);
 } else {

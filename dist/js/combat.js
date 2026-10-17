@@ -1,6 +1,6 @@
 // Combat simulation. This module deliberately has no DOM or external dependencies.
 import { lineClear, moveEntity } from './world.js';
-import { normalizeMode, MELEE_BALANCE } from './modes.js';
+import { modeOf, normalizeMode, MELEE_BALANCE, usesMeleeActions, weaponTypeOf } from './modes.js';
 import {
   ACTIVES, ATTACK, BRUTE_HEAL_DROP_CHANCE, DESCRIPTIONS, MELEE_ACTIVE_WINDOW, MONSTER_FALLBACK, MONSTERS, PASSIVE,
   bladeReachBonus, dashDamage, dashDistance, dashRadius,
@@ -31,14 +31,39 @@ export const MELEE_SKILLS = {
   bladeReach: { name: '刀势延伸', description: DESCRIPTIONS.bladeReach, icon: '⌁', color: '#f0abfc', type: 'passive', maxRank: PASSIVE.bladeReachMaxRank, cooldown: 0 },
 };
 export function getSkills(gameOrMode) {
-  const mode = typeof gameOrMode === 'string' ? gameOrMode : gameOrMode?.mode ?? (gameOrMode?.weaponType === 'sword' ? 'melee' : 'classic');
-  return normalizeMode(mode) === 'melee' ? MELEE_SKILLS : SKILLS;
+  // 分流靠模式声明里的 skillsKey，不再靠「是不是 MELEE_SKILLS 这个对象」。
+  const mode = typeof gameOrMode === 'string'
+    ? gameOrMode
+    : gameOrMode?.mode ?? (usesMeleeActionsFor(gameOrMode) ? 'melee' : 'classic');
+  return SKILL_CATALOGS[modeOf(mode).skillsKey] ?? SKILLS;
 }
+
+/** 从 game 或 actor 形状的对象推断模式（兼容老的 weaponType 字段）。 */
+function usesMeleeActionsFor(gameOrActor) {
+  if (!gameOrActor) return false;
+  if (gameOrActor.mode) return usesMeleeActions(gameOrActor.mode);
+  return gameOrActor.weaponType === weaponTypeOf('melee');
+}
+
+/** 技能目录表：键名由 MODES[mode].skillsKey 指定。 */
+const SKILL_CATALOGS = { classic: SKILLS, melee: MELEE_SKILLS };
+
 export function configureActorForMode(actor, mode) {
-  actor.weaponType = normalizeMode(mode) === 'melee' ? 'sword' : 'ranged';
-  if (actor.weaponType === 'sword') Object.assign(actor, { attackRange: MELEE_BALANCE.range, attackInterval: MELEE_BALANCE.interval, attackTimer: 0, aimAngle: 0, attackHeld: false, attackPressed: false, meleeAction: null, meleeVisuals: [] });
+  const weaponType = weaponTypeOf(mode);
+  actor.weaponType = weaponType;
+  const setup = ACTOR_SETUP[weaponType];
+  if (setup) Object.assign(actor, setup());
   return actor;
 }
+
+/** 各武器的初始状态。键名由 MODES[mode].weaponType 指定。 */
+const ACTOR_SETUP = {
+  sword: () => ({
+    attackRange: MELEE_BALANCE.range, attackInterval: MELEE_BALANCE.interval, attackTimer: 0,
+    aimAngle: 0, attackHeld: false, attackPressed: false, meleeAction: null, meleeVisuals: [],
+  }),
+  // 远程不需要额外覆盖，createActor 已经设好了默认值。
+};
 
 export const PROGRESSION = Object.freeze({
   maxLevel: 15,
@@ -198,7 +223,19 @@ function autoChoose(game, actor) {
 
 export function castSkill(game, actor, slot, aimX, aimY) {
   if (!alive(actor) || !Number.isInteger(slot) || slot < 0 || slot >= PROGRESSION.maxActiveSkills) return false;
-  if (getSkills(game) === MELEE_SKILLS || actor.weaponType === 'sword') return castMeleeSkill(game, actor, slot, aimX, aimY);
+  // 按模式的 combatKey 查释放器，不再用对象身份比较。
+  const caster = CASTERS[modeOf(game?.mode).combatKey];
+  if (!caster) return false;
+  return caster(game, actor, slot, aimX, aimY);
+}
+
+/** 技能释放器：键名由 MODES[mode].combatKey 指定。 */
+const CASTERS = {
+  classic: castRangedSkill,
+  melee: castMeleeSkill,
+};
+
+function castRangedSkill(game, actor, slot, aimX, aimY) {
   const skillId = actor.activeSkills?.[slot];
   if (!skillId || SKILLS[skillId]?.type !== 'active' || (actor.cooldowns?.[skillId] || 0) > 0) return false;
   const rank = actor.skills?.[skillId] || 0;
@@ -266,7 +303,7 @@ export function damage(game, target, amount, source = null) {
   if (target.hp <= 0) {
     target.alive = false;
     if (isActor(game, target)) {
-      if (target.weaponType === 'sword') { target.meleeAction = null; target.meleeVisuals = []; target.attackHeld = false; target.attackPressed = false; }
+      if (target.weaponType === weaponTypeOf('melee')) { target.meleeAction = null; target.meleeVisuals = []; target.attackHeld = false; target.attackPressed = false; }
       target.pendingChoices = 0;
       target.choices = [];
       if (sourceActor && sourceActor !== target && actorList(game).includes(sourceActor)) {
@@ -298,7 +335,7 @@ export function updateCombat(game, dt) {
   game.gems ||= [];
   game.effects ||= [];
   for (const actor of actors) {
-    if (!alive(actor)) { if (actor.weaponType === 'sword') { actor.meleeAction = null; actor.meleeVisuals = []; actor.attackHeld = false; actor.attackPressed = false; } continue; }
+    if (!alive(actor)) { if (actor.weaponType === weaponTypeOf('melee')) { actor.meleeAction = null; actor.meleeVisuals = []; actor.attackHeld = false; actor.attackPressed = false; } continue; }
     tickActor(game, actor, dt);
   }
   for (const monster of monsters) {
@@ -326,7 +363,16 @@ function tickActor(game, actor, dt) {
     actor.hp = Math.min(actor.maxHp, actor.hp + ticks * (PASSIVE.vitalityRegenBase + vitality * PASSIVE.vitalityRegenPerRank));
   }
   if (actor.pendingChoices > 0 && actor.isPlayer !== true) autoChoose(game, actor);
-  if (getSkills(game) === MELEE_SKILLS || actor.weaponType === 'sword') { tickMelee(game, actor, dt); return; }
+  // 按模式的 combatKey 查每帧行为，取代原先的 getSkills(game) === MELEE_SKILLS 身份比较。
+  const ticker = TICKERS[modeOf(game?.mode).combatKey];
+  if (ticker) { ticker(game, actor, dt); return; }
+  tickRanged(game, actor, dt);
+}
+
+/** 每帧 Actor 行为：键名由 MODES[mode].combatKey 指定。经典远程不需要额外分支。 */
+const TICKERS = { melee: tickMelee };
+
+function tickRanged(game, actor, dt) {
   if (actor.attackTimer <= 0) {
     const targets = [...monsterList(game)];
     if (game.phase !== 'grace') targets.push(...actorList(game).filter(other => other !== actor && alive(other)));

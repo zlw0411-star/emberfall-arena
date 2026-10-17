@@ -1,5 +1,17 @@
 import {rngFromSeed} from './world.js';
 import {drawMeleeVisuals,drawMeleeImpact} from './melee-vfx.js';
+import {weaponTypeOf} from './modes.js';
+
+// 武器姿态表：键名由 MODES[mode].weaponType 指定。
+// 以前是 `pose?.weaponType==='sword'` / `a.weaponType==='sword'` 两处硬编码。
+const SWORD = weaponTypeOf('melee');
+const POSE_DRAWERS = {
+  [SWORD]: (c, actor, t, timeOffset, flash) => {
+    const swordAngle = drawMeleeVisuals(c, actor, t + timeOffset, { timeOffset });
+    drawHero(c, actor.x, actor.y, actor.color, t, actor.moving, 1, flash,
+      { weaponType: SWORD, aimAngle: swordAngle, attackRange: actor.attackRange });
+  },
+};
 
 const palette={ground:'#293c30',grass:'#354a32',stone:'#616b50',dark:'#172a22',gold:'#e6bd79'};
 function rect(c,color,x,y,w,h){c.fillStyle=color;c.fillRect(Math.round(x),Math.round(y),w,h);}
@@ -12,7 +24,7 @@ export function drawHero(c,x,y,color,time=0,moving=false,scale=1,flash=false,pos
  rect(c,'#d6be8e',-5,-8,10,7);rect(c,'#252b25',-4,-7,2,2);rect(c,'#252b25',3,-7,2,2);
  rect(c,'#37422b',-6,-1,12,10);rect(c,color,-8,0,4,10);rect(c,color,5,0,4,10);rect(c,'#aa9564',-5,4,10,2);
  const leg=moving?Math.round(Math.sin(time*11)*2):0;rect(c,'#192c24',-6,8,5,5+leg);rect(c,'#192c24',2,8,5,5-leg);
- if(pose?.weaponType==='sword')drawSword(c,0,0,pose.aimAngle||0,pose.attackRange||68,flash);
+ if(pose?.weaponType===SWORD)drawSword(c,0,0,pose.aimAngle||0,pose.attackRange||68,flash);
  else {rect(c,'#dacaa0',11,-5,3,14);rect(c,'#7c6748',10,8,5,3);rect(c,'#bbc6a1',11,-9,3,7);}
  c.restore();
 }
@@ -78,10 +90,9 @@ export class Renderer{
  actor(c,a,t,phase,timeOffset=0){
   if(!a.alive){rect(c,'#54684b',a.x-6,a.y-2,12,4);rect(c,'#677652',a.x-2,a.y-8,4,16);return;}
   if(a.isPlayer){ellipse(c,'#e7c67a22',a.x,a.y+6,18,7);c.strokeStyle='#d3bd7a77';c.lineWidth=1;c.beginPath();c.ellipse(a.x,a.y+7,16,6,0,0,Math.PI*2);c.stroke();}
-  if(a.weaponType==='sword'){
-   const swordAngle=drawMeleeVisuals(c,a,t+timeOffset,{timeOffset});
-   drawHero(c,a.x,a.y,a.color,t,a.moving,1,a.hitFlash>0,{weaponType:'sword',aimAngle:swordAngle,attackRange:a.attackRange});
-  }else drawHero(c,a.x,a.y,a.color,t,a.moving,1,a.hitFlash>0);
+  const poseDrawer=POSE_DRAWERS[a.weaponType];
+  if(poseDrawer)poseDrawer(c,a,t,timeOffset,a.hitFlash>0);
+  else drawHero(c,a.x,a.y,a.color,t,a.moving,1,a.hitFlash>0);
   const y=a.y-28;c.font='7px "Space Grotesk","Noto Sans SC",sans-serif';c.textAlign='center';c.fillStyle='#111e16';c.fillText(`${a.name}  Lv.${a.level}`,a.x+1,y-6);c.fillStyle=a.isPlayer?'#f0d99e':'#c7d1b2';c.fillText(`${a.name}  Lv.${a.level}`,a.x,y-7);rect(c,'#1a281c',a.x-15,y-3,30,3);rect(c,a.isPlayer?'#c9bf7a':phase==='grace'?'#91af7a':'#ca9374',a.x-15,y-3,30*a.hp/a.maxHp,2);
   if(a.isPlayer){c.fillStyle='#e7c67a';c.beginPath();c.moveTo(a.x-3,y-18);c.lineTo(a.x+3,y-18);c.lineTo(a.x,y-14);c.fill();}
  }

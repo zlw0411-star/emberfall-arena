@@ -20,14 +20,15 @@ function clearAttack(){
 function clearInput(){keys.clear();castSlot=-1;clearAttack();}
 function syncMode(){
  const mode=started?game.mode:selectedMode,info=MODES[mode];
- document.body.classList.toggle('mode-melee',mode==='melee');
+ // 所有模式差异都读声明，不再写 mode==='melee' 三元表达式。
+ document.body.classList.toggle('mode-melee',!!info.bodyClass);
  for(const id of ['mode-label','world-mode','result-mode'])$(id).textContent=info.name;
  for(const card of document.querySelectorAll('[data-mode]')){const yes=card.dataset.mode===mode;card.classList.toggle('selected',yes);card.setAttribute('aria-pressed',String(yes));}
  $('mode-description').textContent=info.description;
  $('start-button').innerHTML=`开始${info.name} <span>↗</span>`;
- $('attack-control').innerHTML=mode==='melee'?'<kbd>左键</kbd><span>瞄准 · 按住连斩</span>':'<span class="control-icon">⌖</span><span>自动普攻</span>';
+ $('attack-control').innerHTML=info.attackControlHtml;
  $('choices').dataset.title=`${info.name} · 选择你的力量`;
- portrait.clearRect(0,0,48,48);drawHero(portrait,24,25,'#f2be65',0,false,1.45,false,mode==='melee'?{weaponType:'sword',aimAngle:-Math.PI/3,attackRange:36}:null);
+ portrait.clearRect(0,0,48,48);drawHero(portrait,24,25,'#f2be65',0,false,1.45,false,info.portraitPose?{...info.portraitPose}:null);
 }
 function selectMode(mode){if(started)return;selectedMode=normalizeMode(mode);clearInput();game=createGame(game.seed,{mode:selectedMode});choiceKey='';syncMode();updateHud();}
 function begin(){
@@ -60,13 +61,13 @@ window.addEventListener('keydown',e=>{const key=e.key.toLowerCase();if(['arrowup
 window.addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
 function pointAt(e){const r=$('game').getBoundingClientRect();pointer.x=e.clientX-r.left;pointer.y=e.clientY-r.top;}
 $('game').addEventListener('pointermove',pointAt);
-const attackInput=createAttackInput($('game'),window,()=>game.mode==='melee'&&started&&!game.paused&&!game.result&&game.actors[0].alive,e=>{pointAt(e);$('game-shell').focus({preventScroll:true});});
+const attackInput=createAttackInput($('game'),window,()=>MODES[game.mode].usesPointerAttack&&started&&!game.paused&&!game.result&&game.actors[0].alive,e=>{pointAt(e);$('game-shell').focus({preventScroll:true});});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){clearInput();pause(true);}});window.addEventListener('blur',()=>{clearInput();if(started)pause(true);});
 
 function updateHud(){
  const a=game.actors[0],living=game.actors.filter(a=>a.alive),phase=game.phase,SKILLS=getSkills(game);const count=living.length;
  $('clock').textContent=timeText(game.time);$('seed-label').textContent=`SEED ${game.seed}`;$('alive-count').textContent=String(count).padStart(2,'0');$('roster-count').textContent=`${count} IN THE RUINS`;$('total-count').textContent=String(game.actors.length).padStart(2,'0');
- $('player-level').textContent=`LV. ${String(a.level).padStart(2,'0')}`;$('hp-fill').style.width=`${100*a.hp/a.maxHp}%`;$('hp-text').textContent=`${Math.ceil(a.hp)} / ${a.maxHp}`;$('xp-fill').style.width=a.level>=CONFIG.maxLevel?'100%':`${100*a.xp/xpNeeded(a.level)}%`;$('xp-text').textContent=a.level>=CONFIG.maxLevel?'最高等级':`XP ${Math.floor(a.xp)} / ${xpNeeded(a.level)}`;$('attack-stat').textContent=`${game.mode==='melee'?'刀伤':'攻击'} ${(a.attackDamage*(game.mode==='melee'?MELEE_BALANCE.damageMultiplier:1)*(1+(a.skills.power||0)*COMBAT_BALANCE.powerDamagePerRank)).toFixed(1)}`;
+ $('player-level').textContent=`LV. ${String(a.level).padStart(2,'0')}`;$('hp-fill').style.width=`${100*a.hp/a.maxHp}%`;$('hp-text').textContent=`${Math.ceil(a.hp)} / ${a.maxHp}`;$('xp-fill').style.width=a.level>=CONFIG.maxLevel?'100%':`${100*a.xp/xpNeeded(a.level)}%`;$('xp-text').textContent=a.level>=CONFIG.maxLevel?'最高等级':`XP ${Math.floor(a.xp)} / ${xpNeeded(a.level)}`;$('attack-stat').textContent=`${MODES[game.mode].damageLabel} ${(a.attackDamage*MODES[game.mode].damageDisplayMultiplier*(1+(a.skills.power||0)*COMBAT_BALANCE.powerDamagePerRank)).toFixed(1)}`;
  const phaseNames={grace:'发育保护',hunt:'自由争夺',finale:'终局决战'};$('phase-tag').textContent=started?phaseNames[phase]:'准备进入';$('phase-tag').className='phase-tag '+phase;
  let label='发育保护期',remaining=CONFIG.grace-game.time,progress=Math.max(0,remaining/CONFIG.grace),description='角色暂不互伤，打怪拾取经验以成长。';
  if(phase==='hunt'){label='争夺进行中';remaining=0;progress=1;description='已开放互伤 · 任意旅者满级后开启决战。';}

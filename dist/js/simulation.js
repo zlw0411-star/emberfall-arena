@@ -1,8 +1,21 @@
 import {MATCH_SIZE,generateMap,rngFromSeed,randomFree,moveEntity,blocked} from './world.js';
 import {createActor,configureActorForMode,updateCombat,castSkill,damage,PROGRESSION} from './combat.js';
-import {normalizeMode} from './modes.js';
+import {MODES,normalizeMode} from './modes.js';
 import {think} from './ai.js';
 import {MONSTERS,MONSTER_SPAWN_POLICY} from './balance.js';
+
+/**
+ * 输入适配：哪些模式需要把鼠标瞄准与左键攻击传给角色。
+ * 以前这里硬编码 game.mode==='melee'，现在按模式的 usesPointerAttack 声明判定。
+ */
+const POINTER_INPUT_MODES = new Set(Object.values(MODES).filter((mode) => mode.usesPointerAttack).map((mode) => mode.id));
+function applyPointerInput(mode, actor, command) {
+  if (!POINTER_INPUT_MODES.has(mode)) return;
+  actor.attackHeld = !!command.attackHeld;
+  actor.attackPressed = !!command.attackPressed;
+  const dx = (command.aimX ?? actor.x) - actor.x, dy = (command.aimY ?? actor.y) - actor.y;
+  if (Number.isFinite(dx) && Number.isFinite(dy) && Math.hypot(dx, dy) > .001) actor.aimAngle = Math.atan2(dy, dx);
+}
 
 // Twelve travelers share 20% more supplies than the eight-traveler arena.
 // Scaling supplies by the full roster ratio made the stronger PvP finish too early.
@@ -61,12 +74,7 @@ export function stepGame(game,dt,input={}){
   for(const a of game.actors){
     if(!a.alive)continue;
     const command=(!a.isPlayer||input.autoPlayer)?think(game,a,dt):input;
-    if(game.mode==='melee'){
-      a.attackHeld=!!command.attackHeld;
-      a.attackPressed=!!command.attackPressed;
-      const dx=(command.aimX??a.x)-a.x,dy=(command.aimY??a.y)-a.y;
-      if(Number.isFinite(dx)&&Number.isFinite(dy)&&Math.hypot(dx,dy)>.001)a.aimAngle=Math.atan2(dy,dx);
-    }
+    if(POINTER_INPUT_MODES.has(game.mode))applyPointerInput(game.mode,a,command);
     let mx=command.mx||0,my=command.my||0;const len=Math.hypot(mx,my);if(len>1){mx/=len;my/=len;}
     let slow=1;for(const t of game.map.traps)if(t.type==='mud'&&Math.hypot(a.x-t.x,a.y-t.y)<t.r+a.radius)slow=.55;
     if(a.slowUntil>game.time)slow*=.65;
