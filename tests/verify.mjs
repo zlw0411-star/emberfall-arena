@@ -38,7 +38,7 @@ function step(name, command, args, env = {}) {
 console.log('1/5 unit tests');
 // Windows 下 npm 的 glob 由 shell 展开，node 自身不展开通配符，
 // 所以这里显式传 shell，并保持参数固定（无用户输入）。
-step('unit tests', process.execPath, ['--test', 'tests/contracts.test.js', 'tests/controls.test.js', 'tests/determinism.test.js', 'tests/melee.test.js', 'tests/melee-vfx.test.js']);
+step('unit tests', process.execPath, ['--test', 'tests/contracts.test.js', 'tests/controls.test.js', 'tests/determinism.test.js', 'tests/melee.test.js', 'tests/melee-vfx.test.js', 'tests/monsters.test.js']);
 
 console.log('2/5 full-match simulation (classic + melee, 60Hz)');
 step('simulate classic 60Hz', process.execPath, ['tests/simulate.js', 'sim-101', 'sim-202', 'sim-303'], { SIM_HZ: '60' });

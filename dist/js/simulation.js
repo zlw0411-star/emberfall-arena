@@ -2,11 +2,13 @@ import {MATCH_SIZE,generateMap,rngFromSeed,randomFree,moveEntity,blocked} from '
 import {createActor,configureActorForMode,updateCombat,castSkill,damage,PROGRESSION} from './combat.js';
 import {normalizeMode} from './modes.js';
 import {think} from './ai.js';
+import {MONSTERS,MONSTER_SPAWN_POLICY} from './balance.js';
 
 // Twelve travelers share 20% more supplies than the eight-traveler arena.
 // Scaling supplies by the full roster ratio made the stronger PvP finish too early.
 const resourceScale=1.2;
-export const CONFIG={actorCount:MATCH_SIZE,simulationHz:60,grace:90,pvpNotice:10,maxLevel:PROGRESSION.maxLevel,warning:10,shrinkDuration:180,matchLimit:720,finaleDeadline:520,initialGems:Math.round(72*resourceScale),initialMonsters:Math.round(24*resourceScale),monsterCap:Math.round(52*resourceScale),gemCap:Math.round(110*resourceScale),monsterInterval:3.2/resourceScale,gemInterval:7/resourceScale,mapGemXp:5,monsterXp:15,bruteXp:25};
+// monsterXp / bruteXp 由 MONSTERS 表导出，保持对外接口不变。
+export const CONFIG={actorCount:MATCH_SIZE,simulationHz:60,grace:90,pvpNotice:10,maxLevel:PROGRESSION.maxLevel,warning:10,shrinkDuration:180,matchLimit:720,finaleDeadline:520,initialGems:Math.round(72*resourceScale),initialMonsters:Math.round(24*resourceScale),monsterCap:Math.round(52*resourceScale),gemCap:Math.round(110*resourceScale),monsterInterval:3.2/resourceScale,gemInterval:7/resourceScale,mapGemXp:5,monsterXp:MONSTERS.slime.xp,bruteXp:MONSTERS.brute.xp};
 const names=['你','苔痕','鸦羽','夜行者','烛影','赤砂','雾凇','游隼','青芒','松烟','星屑','玄石'];
 const colors=['#f2be65','#7bc796','#aa9de6','#6bb8dc','#e39ca4','#df9764','#9ccec6','#c7c28a','#a6cb68','#a89a7d','#e2a8d9','#829bba'];
 export function createGame(seed=Date.now(),options={}){
@@ -31,9 +33,11 @@ export function spawnMonster(game){
   if(game.phase==='finale'||game.result||game.monsters.filter(m=>m.alive).length>=CONFIG.monsterCap)return null;
   let p=randomFree(game.map,game.rng,30);
   for(let i=0;i<20&&game.actors.some(a=>a.alive&&Math.hypot(a.x-p.x,a.y-p.y)<180);i++)p=randomFree(game.map,game.rng,30);
-  const tier=game.time>170&&game.rng()<.24?'brute':game.rng()<.28?'bat':'slime';
-  const health=tier==='brute'?80:tier==='bat'?26:40;
-  const m={id:game.nextId++,...p,radius:tier==='brute'?15:10,type:tier,hp:health,maxHp:health,speed:tier==='bat'?69:tier==='brute'?35:44,damage:tier==='brute'?12:6,attackTimer:0,alive:true,xp:tier==='brute'?CONFIG.bruteXp:CONFIG.monsterXp};game.monsters.push(m);game.spawnCount++;return m;
+  // rng 消耗顺序必须与历史一致：先抽 brute，再抽 bat。
+  const policy=MONSTER_SPAWN_POLICY;
+  const tier=game.time>policy.bruteAfterSeconds&&game.rng()<policy.bruteChance?'brute':game.rng()<policy.batChance?'bat':'slime';
+  const def=MONSTERS[tier];
+  const m={id:game.nextId++,...p,radius:def.radius,type:tier,hp:def.hp,maxHp:def.hp,speed:def.spawnSpeed,damage:def.damage,attackTimer:0,alive:true,xp:def.xp};game.monsters.push(m);game.spawnCount++;return m;
 }
 export function startFinale(game,reason='level'){
   if(game.phase==='finale'||game.result)return;

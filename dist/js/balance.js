@@ -180,6 +180,49 @@ export const ACTIVES = Object.freeze({
 export const MELEE_ACTIVE_WINDOW = Object.freeze({ active: 0.08, recovery: 0.25 });
 
 // ---------------------------------------------------------------------------
+// 怪物类型
+// ---------------------------------------------------------------------------
+
+/**
+ * 以前一种怪物要改四个地方：
+ *   simulation.js 的 spawnMonster（数值）、combat.js 的 tickMonster（速度兜底表）、
+ *   classifyDamage（死亡归因的类型白名单）、damageCauseLabel（中文名）。
+ * 漏改白名单不会让任何测试变红，只会让伤害归因静默变成兜底值，
+ * 而 simulate.js 的死亡统计从此失真。现在四个地方都查这张表。
+ *
+ * spawnSpeed 与 fallbackSpeed 是两套值，必须保留差异：
+ * spawn 时写入 monster.speed，而 tickMonster 只在缺 speed 时才用兜底表，
+ * 两者历史上就不一致（例如史莱姆 44 / 38），合并会改变行为。
+ */
+export const MONSTERS = Object.freeze({
+  slime: Object.freeze({
+    name: '史莱姆', hp: 40, radius: 10, spawnSpeed: 44, fallbackSpeed: 38, damage: 6, xp: 15,
+  }),
+  bat: Object.freeze({
+    name: '蝙蝠', hp: 26, radius: 10, spawnSpeed: 69, fallbackSpeed: 70, damage: 6, xp: 15,
+  }),
+  brute: Object.freeze({
+    name: '巨兽', hp: 80, radius: 15, spawnSpeed: 35, fallbackSpeed: 25, damage: 12, xp: 25,
+  }),
+});
+
+/** 未知类型的落回值（与历史行为一致）。 */
+export const MONSTER_FALLBACK = Object.freeze({ speed: 38, name: '怪物' });
+
+/** 刷怪选择策略。注意 rng 消耗顺序必须与历史一致：先判 brute，再判 bat。 */
+export const MONSTER_SPAWN_POLICY = Object.freeze({
+  bruteAfterSeconds: 170,
+  bruteChance: 0.24,
+  batChance: 0.28,
+});
+
+/** 巨兽额外掉治疗晶体的概率。 */
+export const BRUTE_HEAL_DROP_CHANCE = 0.28;
+
+/** 怪物类型是否是已知类型（用于死亡归因，避免兜底静默生效）。 */
+export const isKnownMonster = (type) => Object.hasOwn(MONSTERS, type);
+
+// ---------------------------------------------------------------------------
 // 派生函数：技能几何与数值（combat.js 与 ai.js 共用，保证两边永远一致）
 // ---------------------------------------------------------------------------
 

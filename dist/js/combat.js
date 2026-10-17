@@ -2,9 +2,9 @@
 import { lineClear, moveEntity } from './world.js';
 import { normalizeMode, MELEE_BALANCE } from './modes.js';
 import {
-  ACTIVES, ATTACK, DESCRIPTIONS, MELEE_ACTIVE_WINDOW, PASSIVE,
+  ACTIVES, ATTACK, BRUTE_HEAL_DROP_CHANCE, DESCRIPTIONS, MELEE_ACTIVE_WINDOW, MONSTER_FALLBACK, MONSTERS, PASSIVE,
   bladeReachBonus, dashDamage, dashDistance, dashRadius,
-  fireballDamage, fireballSplash, heavySlashCoefficient, heavySlashRange,
+  fireballDamage, fireballSplash, heavySlashCoefficient, heavySlashRange, isKnownMonster,
   lungeCoefficient, lungeDistance, quakeDamage, quakeRadius,
   skillCooldown, whirlwindCoefficient, whirlwindRadius,
 } from './balance.js';
@@ -331,7 +331,9 @@ function tickMonster(game, monster, dt) {
     }
     return;
   }
-  const speed = monster.speed || ({ slime: 38, bat: 70, brute: 25 }[monster.type] || 38);
+  // 速度兜底表已移到 balance.js 的 MONSTERS 表，与 spawnMonster 共用同一声明。
+  // 注意用的是 fallbackSpeed 而非 spawnSpeed：历史行为两者本就不同。
+  const speed = monster.speed || (MONSTERS[monster.type]?.fallbackSpeed ?? MONSTER_FALLBACK.speed);
   const mx = dx / d * speed * dt, my = dy / d * speed * dt;
   moveEntity(game.map, monster, mx, my);
 }
@@ -455,7 +457,7 @@ export function dropGem(game, monster, value) {
   } else {
     game.gems.push({ id: game.nextId++, x: monster.x, y: monster.y, value, kind: 'xp', radius: 5, ttl: 60 });
   }
-  if (monster.type === 'brute' && requireRng(game)() < 0.28) game.gems.push({ id: game.nextId++, x: monster.x + 8, y: monster.y, value: COMBAT_BALANCE.healingGemValue, kind: 'heal', radius: 6, ttl: 45 });
+  if (monster.type === 'brute' && requireRng(game)() < BRUTE_HEAL_DROP_CHANCE) game.gems.push({ id: game.nextId++, x: monster.x + 8, y: monster.y, value: COMBAT_BALANCE.healingGemValue, kind: 'heal', radius: 6, ttl: 45 });
 }
 
 function canLearnSkill(actor, skillId, skills = SKILLS) {
@@ -467,14 +469,15 @@ function levelMaxHp(level) { return COMBAT_BALANCE.baseMaxHp + (level - 1) * COM
 function classifyDamage(game, target, sourceActor, source) {
   if (sourceActor) return 'actor';
   if (source?.type === 'zone') return 'zone';
-  if (source && (monsterList(game).includes(source) || ['slime', 'bat', 'brute'].includes(source.type))) return 'monster';
+  // 类型白名单改为查 MONSTERS 表，新增怪物类型时不会因漏改这里而静默归因失败。
+  if (source && (monsterList(game).includes(source) || isKnownMonster(source.type))) return 'monster';
   if (!source && game?.phase === 'finale' && game.zone
     && Math.hypot(target.x - game.zone.x, target.y - game.zone.y) > game.zone.radius) return 'zone';
   return source == null ? 'trap' : 'monster';
 }
 function damageCauseLabel(kind, sourceActor, source) {
   if (kind === 'actor') return sourceActor?.name || '其他战士';
-  if (kind === 'monster') return source?.name || ({ slime: '史莱姆', bat: '蝙蝠', brute: '巨兽' }[source?.type] || '怪物');
+  if (kind === 'monster') return source?.name || MONSTERS[source?.type]?.name || MONSTER_FALLBACK.name;
   return kind === 'zone' ? '余烬风暴' : '尖刺陷阱';
 }
 function resolveActor(game, source) {
