@@ -6,8 +6,8 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "verify": "node tests/verify.mjs",
-    "snapshot:write": "node .local/state-snapshot.mjs write .local/baseline-output/state-baseline.json",
-    "snapshot:check": "node .local/state-snapshot.mjs check .local/baseline-output/state-baseline.json",
+    "snapshot:write": "node tests/state-snapshot.mjs write tests/baselines/state-baseline.json",
+    "snapshot:check": "node tests/state-snapshot.mjs check tests/baselines/state-baseline.json",
     "simulate": "node tests/simulate.js",
     "duels": "node tests/duels.js",
     "performance": "node tests/performance.js",

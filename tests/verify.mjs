@@ -5,10 +5,11 @@
 //
 // 与 npm test 的区别：npm test 只管单元测试；本脚本是「改完代码能不能提交」的判定。
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { snapshot } from '../.local/state-snapshot.mjs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { snapshot } from './state-snapshot.mjs';
 
-const BASELINE = '.local/baseline-output/state-baseline.json';
+// 基线纳入版本管理，新克隆的仓库无需先生成即可校验。
+const BASELINE = 'tests/baselines/state-baseline.json';
 const results = [];
 let failed = 0;
 
@@ -45,7 +46,7 @@ step('simulate classic 60Hz', process.execPath, ['tests/simulate.js', 'sim-101',
 step('simulate melee 60Hz', process.execPath, ['tests/simulate.js', 'sim-101', 'sim-202', 'sim-303'], { SIM_HZ: '60', GAME_MODE: 'melee' });
 
 console.log('3/6 DOM smoke (app.js + renderer, classic/melee/third mode)');
-step('dom smoke', process.execPath, ['.local/dom-smoke.mjs']);
+step('dom smoke', process.execPath, ['tests/dom-smoke.mjs']);
 
 console.log('4/6 duel benchmarks');
 step('duels (ranged)', process.execPath, ['tests/duels.js']);
@@ -57,7 +58,7 @@ step('performance melee', process.execPath, ['tests/performance.js'], { GAME_MOD
 
 console.log('6/6 frame-by-frame state identity vs baseline');
 if (!existsSync(BASELINE)) {
-  console.log(`  SKIP  no baseline at ${BASELINE}; run: node .local/state-snapshot.mjs write ${BASELINE}`);
+  console.log(`  SKIP  no baseline at ${BASELINE}; run: npm run snapshot:write`);
 } else {
   const base = JSON.parse(readFileSync(BASELINE, 'utf8'));
   const now = snapshot();
@@ -84,7 +85,9 @@ if (!existsSync(BASELINE)) {
   }
 }
 
-// 每次跑完留一份性能快照，方便和历史对比。
+// 上次运行摘要只写进被忽略的 .local，不进版本库；
+// .local 不存在时自动创建，保证全新克隆也能跑通。
+mkdirSync('.local/baseline-output', { recursive: true });
 writeFileSync(
   '.local/baseline-output/verify-last.json',
   `${JSON.stringify({ at: new Date().toISOString(), results, failed }, null, 2)}\n`,
