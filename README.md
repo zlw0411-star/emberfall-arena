@@ -40,12 +40,15 @@ npm start
 ## 验证
 
 ```powershell
-npm test
+npm run verify        # 一次跑完全部验收（推荐）
+npm test              # 只跑单元测试
 npm run simulate
 npm run duels
 npm run melee-duels
 npm run performance
 ```
+
+`npm run verify` 串联六项检查：单元测试、双模式 60Hz 整局模拟、DOM 冒烟测试（真实启动 `app.js`，开局、暂停、移动、返回菜单、切近战、按住左键挥刀）、对砍基准、性能，以及**逐秒状态哈希与新动前基线逐字节比对**。任何一项失败即判定不可提交。
 
 `tests/simulate.js` 支持通过命令行传入种子。规则测试使用 Node 原生测试运行器；模拟无绘制，所有角色使用同一套 AI。地图随机、技能选择和对局可用相同种子复现。
 
@@ -55,4 +58,4 @@ npm run performance
 
 浏览器使用60Hz固定模拟与画面插值，渲染自动跟随显示器刷新率（60/120/144Hz等），实际帧率显示在战场顶部。地形预绘制、空间索引碰撞、AI寻路缓存减少每帧开销。
 
-模块接口和文件分工见 docs/CONTRACT.md。static dist 可直接部署到任意静态站点服务，Sites 配置位于 .openai/hosting.json。
+模块接口、分工与扩展方式见 docs/CONTRACT.md（含新增技能/怪物/模式的改动点说明）。static dist 可直接部署到任意静态站点服务，Sites 配置位于 .openai/hosting.json。

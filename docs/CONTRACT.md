@@ -2,6 +2,29 @@
 
 Browser native ES modules in dist/js. No external dependencies. Pure simulation importable by Node. All coordinates in world pixels, seconds for time; browser simulation fixed dt=1/60, RAF interpolation follows screen refresh. Headless rule simulations may use dt=1/30. Previous entity coordinates prevX/prevY support renderer interpolation.
 
+## Architecture changes (2026-10-17 refactor)
+
+Baseline tag `v1.0.0-baseline` marks the pre-refactor state. Branch `refactor/architecture` carries the changes. Every stage must pass `npm run verify` with **byte-identical** per-second state hashes against `.local/baseline-output/state-baseline.json` (8 runs x ~500 hashes; classic and melee). Regenerate with `npm run snapshot:write` only when a behaviour change is intentional and documented.
+
+### balance.js (new, zero dependencies)
+Single source of numeric truth. Exports `ACTIVES` (per-skill rank scaling), `PASSIVE`, `ATTACK`, `MELEE_ACTIVE_WINDOW`, `MONSTERS`, `MONSTER_SPAWN_POLICY`, `BRUTE_HEAL_DROP_CHANCE`, `MONSTER_FALLBACK`, `isKnownMonster`, derived helpers (`fireballDamage`, `dashDistance`, `lungeDistance`, `whirlwindRadius`, `heavySlashRange`, `skillCooldown`, `bladeReachBonus`, ...), and `DESCRIPTIONS` which generates every Chinese skill description from those constants. `ai.js` imports the melee range helpers so AI reach decisions can never drift from combat execution. Nothing in this module may import combat.js.
+
+Adding a skill now touches one file: add an `ACTIVES` entry, and (for actives) one row in `RANK_EFFECTS`, `CAST_EFFECTS` or `MELEE_SHAPES` inside combat.js. Missing table rows are rejected at cast time instead of falling through to a default branch.
+
+Adding a monster type touches one file: add a `MONSTERS` entry. `spawnMonster` (stats), `tickMonster` (fallback speed), `classifyDamage` (attribution) and `damageCauseLabel` (display name) all read that table. `spawnSpeed` and `fallbackSpeed` are intentionally different values and must stay separate.
+
+### modes.js (registry)
+`MODES` is a registry populated by `registerMode(definition)`; registered modes are frozen and validated against 14 required fields. `unregisterMode(id)` exists for tests and refuses to remove the default. Every mode declares `skillsKey`, `combatKey`, `aiKey`, `weaponType`, `usesPointerAttack`, `bodyClass`, `attackControlHtml`, `portraitPose`, `damageLabel`, `damageDisplayMultiplier`. Modules resolve behaviour by looking up their own table with those keys: `SKILL_CATALOGS` / `TICKERS` / `CASTERS` / `ACTOR_SETUP` (combat.js), `THINKERS` (ai.js), `POSE_DRAWERS` (renderer.js), `POINTER_INPUT_MODES` (simulation.js, derived from `usesPointerAttack`). No module may branch on `mode === 'melee'` or compare skill catalogs by identity. Registering a third mode must not require editing any branch.
+
+### Determinism is enforced, not assumed
+`game.rng` is mandatory. `randomFree`, `getChoices` and `dropGem` throw `TypeError` when no `rng` function is supplied; they never fall back to `Math.random`. `tests/determinism.test.js` covers this plus full-match reproducibility.
+
+### Frontend split
+`app.js` is an entry point only: it builds the layers and runs the fixed-step loop. `state.js` holds the single mutable session object (keeps hud/input/overlays free of circular imports). `dom.js` holds `$`, `show`, `timeText`, `beep`, `toast`. `hud.js` refreshes HUD by region and may only read game state and write DOM. `input.js` owns keyboard, pointer and attack input plus blur-pause. `overlays.js` owns start/pause/menu/choice/help/spectate/sound flows. HUD reads `MODES[game.mode]` for labels and multipliers instead of branching on the mode name.
+
+### Verification
+`npm run verify` runs six checks: unit tests, full-match simulation at 60Hz for both modes, a DOM smoke test that boots the real `app.js` against a mock DOM/canvas (start match, 180 frames, pause freezes time, keyboard movement, return to menu, switch to melee, hold left button to swing), duel benchmarks, performance, and per-second state hash identity against the baseline. `npm test` still runs unit tests only.
+
 ## World (world.js, owned by map agent)
 Exports MATCH_SIZE=12, rngFromSeed(seed)->function random in [0,1), generateMap(seed)->map, randomFree(map,rng,padding=24)->{x,y}, blocked(map,x,y,radius=12)->boolean, moveEntity(map,entity,dx,dy) mutates x/y with collision, lineClear(map,a,b)->boolean. map={width:2048,height:2048,tileSize:32,obstacles:[{x,y,w,h,kind}],traps:[{x,y,r,type:'spike'|'mud',offset}],spawnPoints:[12 {x,y}],freePoints:[{x,y}],seed}. Ensure radius 16 reachable connected ground, final center clear radius 100. Objects are solid rectangles. World generation deterministic. moveEntity uses entity.radius default12.
 

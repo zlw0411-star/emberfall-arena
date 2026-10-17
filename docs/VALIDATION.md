@@ -1,5 +1,26 @@
 # 首版验证记录
 
+## 架构重构（2026-10-17，分支 refactor/architecture）
+
+基线标签 `v1.0.0-baseline` 指向 `2cf4a34`（重构前）。全部重构在该分支完成，`main` 始终停在基线。
+
+验收方式是**逐秒状态哈希逐字节比对**：`.local/state-snapshot.mjs` 对 classic/melee × 4 个种子各跑完整一局，每秒对整局可序列化状态做 SHA-256（排除 `meleeVisuals`/`hitFlash`/`effects` 三个纯视觉字段），共 8 局 4071 个哈希。任一阶段改动后必须与 `.local/baseline-output/state-baseline.json` 完全一致。
+
+| 阶段 | 内容 | 改动点 | 测试 | 哈希 |
+| --- | --- | --- | --- | --- |
+| 0-A | 提取 balance.js，描述文本由常量生成 | 12 条描述手写 → 单一来源 | 47/47 | 全等 |
+| 0-B | Math.random 兜底改为显式抛错 | 3 处静默降级 → 确定性红线 | 52/52 | 全等 |
+| 0-C | 新增 npm run verify 回归闸门 | — | 52/52 | 全等 |
+| 1-A | 怪物类型合并为单一声明 | 4 处 → 1 处 | 60/60 | 全等 |
+| 1-B | 技能效果改为声明式表 | 3 处 → 1 处 | 71/71 | 全等 |
+| 1-C | 模式注册表 | 18 处 → 1 处声明 | 80/80 | 全等 |
+| 2 | 拆分 app.js（state/dom/hud/input/overlays） | 835 字符单行 → 分区函数 | 80/80 | 全等 |
+
+性能没有退化，也不需要优化：模拟平均 0.45ms/tick、p95 0.79ms（占 60Hz 预算 4.7%）、约 37 倍实时；62 怪 + 400 子弹时 1.24ms/tick。
+
+新增的 `tests/determinism.test.js`、`tests/monsters.test.js`、`tests/skills.test.js`、`tests/modes.test.js` 把「改一处即生效」从口头约定钉成断言。`.local/dom-smoke.mjs` 用最小 DOM/Canvas mock 真实驱动 `app.js`：点击开始、跑 180 帧、验证暂停冻结时间、键盘移动、返回菜单、切近战模式、按住左键产生挥刀动作；该测试已接入 `npm run verify`，覆盖原先只看模拟、测不到前端的空白。
+
+
 2026-10-15，Windows / Node.js，浏览器 Canvas 2D。
 
 ## 近战技能画面更新（2026-10-16，当前版本）
