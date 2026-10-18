@@ -3,9 +3,11 @@ import { lineClear, moveEntity } from './world.js';
 import { modeOf, normalizeMode, MELEE_BALANCE, usesMeleeActions, weaponTypeOf } from './modes.js';
 import {
   ACTIVES, ATTACK, BRUTE_HEAL_DROP_CHANCE, DESCRIPTIONS, MELEE_ACTIVE_WINDOW, MONSTER_FALLBACK, MONSTERS, PASSIVE,
-  bladeReachBonus, dashDamage, dashDistance, dashRadius,
+  bladeReachBonus, bladeWardDuration, bladeWardShield, chainLightningDamage, chainLightningTargets,
+  dashDamage, dashDistance, dashRadius,
   fireballDamage, fireballSplash, heavySlashCoefficient, heavySlashRange, isKnownMonster,
-  lungeCoefficient, lungeDistance, quakeDamage, quakeRadius,
+  focusCooldown, frostNovaDamage, frostNovaRadius, lungeCoefficient, lungeDistance,
+  piercingThrustCoefficient, piercingThrustRange, quakeDamage, quakeRadius,
   skillCooldown, whirlwindCoefficient, whirlwindRadius,
 } from './balance.js';
 
@@ -15,20 +17,28 @@ export const SKILLS = {
   fireball: { name: ACTIVES.fireball.name, description: DESCRIPTIONS.fireball, icon: ACTIVES.fireball.icon, color: ACTIVES.fireball.color, type: 'active', maxRank: ACTIVES.fireball.maxRank, cooldown: ACTIVES.fireball.cooldown },
   dash: { name: ACTIVES.dash.name, description: DESCRIPTIONS.dash, icon: ACTIVES.dash.icon, color: ACTIVES.dash.color, type: 'active', maxRank: ACTIVES.dash.maxRank, cooldown: ACTIVES.dash.cooldown },
   quake: { name: ACTIVES.quake.name, description: DESCRIPTIONS.quake, icon: ACTIVES.quake.icon, color: ACTIVES.quake.color, type: 'active', maxRank: ACTIVES.quake.maxRank, cooldown: ACTIVES.quake.cooldown },
+  chainLightning: { name: ACTIVES.chainLightning.name, description: DESCRIPTIONS.chainLightning, icon: ACTIVES.chainLightning.icon, color: ACTIVES.chainLightning.color, type: 'active', maxRank: ACTIVES.chainLightning.maxRank, cooldown: ACTIVES.chainLightning.cooldown },
+  frostNova: { name: ACTIVES.frostNova.name, description: DESCRIPTIONS.frostNova, icon: ACTIVES.frostNova.icon, color: ACTIVES.frostNova.color, type: 'active', maxRank: ACTIVES.frostNova.maxRank, cooldown: ACTIVES.frostNova.cooldown },
   power: { name: '强力弹丸', description: DESCRIPTIONS.power, icon: '✦', color: '#fb7185', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
   haste: { name: '迅捷', description: DESCRIPTIONS.haste, icon: '»', color: '#facc15', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
   vitality: { name: '坚韧', description: DESCRIPTIONS.vitality, icon: '♥', color: '#4ade80', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
   magnet: { name: '拾荒者', description: DESCRIPTIONS.magnet, icon: '✧', color: '#60a5fa', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
   multishot: { name: '连射', description: DESCRIPTIONS.multishot, icon: '⁝', color: '#f0abfc', type: 'passive', maxRank: PASSIVE.hasteMaxRank, cooldown: 0 },
+  precision: { name: '弱点洞察', description: DESCRIPTIONS.precision, icon: '✧', color: '#ffd780', type: 'passive', maxRank: PASSIVE.precisionMaxRank, cooldown: 0 },
+  sustain: { name: '战斗续航', description: DESCRIPTIONS.sustain, icon: '♥', color: '#75dfa3', type: 'passive', maxRank: PASSIVE.sustainMaxRank, cooldown: 0 },
+  focus: { name: '灵能专注', description: DESCRIPTIONS.focus, icon: '◈', color: '#b9b3ff', type: 'passive', maxRank: PASSIVE.focusMaxRank, cooldown: 0 },
 };
 
 export const MELEE_SKILLS = {
   lunge: { name: ACTIVES.lunge.name, description: DESCRIPTIONS.lunge, icon: ACTIVES.lunge.icon, color: ACTIVES.lunge.color, type: 'active', maxRank: ACTIVES.lunge.maxRank, cooldown: ACTIVES.lunge.cooldown },
   whirlwind: { name: ACTIVES.whirlwind.name, description: DESCRIPTIONS.whirlwind, icon: ACTIVES.whirlwind.icon, color: ACTIVES.whirlwind.color, type: 'active', maxRank: ACTIVES.whirlwind.maxRank, cooldown: ACTIVES.whirlwind.cooldown },
   heavySlash: { name: ACTIVES.heavySlash.name, description: DESCRIPTIONS.heavySlash, icon: ACTIVES.heavySlash.icon, color: ACTIVES.heavySlash.color, type: 'active', maxRank: ACTIVES.heavySlash.maxRank, cooldown: ACTIVES.heavySlash.cooldown },
+  piercingThrust: { name: ACTIVES.piercingThrust.name, description: DESCRIPTIONS.piercingThrust, icon: ACTIVES.piercingThrust.icon, color: ACTIVES.piercingThrust.color, type: 'active', maxRank: ACTIVES.piercingThrust.maxRank, cooldown: ACTIVES.piercingThrust.cooldown },
+  bladeWard: { name: ACTIVES.bladeWard.name, description: DESCRIPTIONS.bladeWard, icon: ACTIVES.bladeWard.icon, color: ACTIVES.bladeWard.color, type: 'active', maxRank: ACTIVES.bladeWard.maxRank, cooldown: ACTIVES.bladeWard.cooldown },
   power: { ...SKILLS.power, name: '刀锋强化' },
   haste: { ...SKILLS.haste }, vitality: { ...SKILLS.vitality }, magnet: { ...SKILLS.magnet },
   bladeReach: { name: '刀势延伸', description: DESCRIPTIONS.bladeReach, icon: '⌁', color: '#f0abfc', type: 'passive', maxRank: PASSIVE.bladeReachMaxRank, cooldown: 0 },
+  precision: { ...SKILLS.precision }, sustain: { ...SKILLS.sustain }, focus: { ...SKILLS.focus },
 };
 export function getSkills(gameOrMode) {
   // 分流靠模式声明里的 skillsKey，不再靠「是不是 MELEE_SKILLS 这个对象」。
@@ -117,6 +127,7 @@ export function createActor(id, name, x, y, isPlayer = false, color = '#74d680')
     attackTimer: 0.18, pickupRadius: PASSIVE.magnetRadiusBase,
     skills: {}, activeSkills: [], cooldowns: {}, pendingChoices: 0, choices: [],
     regenTimer: 0, hitFlash: 0, combatSpeedMult: 1, speedBoostT: 0,
+    shieldHp: 0, shieldT: 0,
     damageTakenByKind: { actor: 0, monster: 0, trap: 0, zone: 0 },
     lastDamageKind: null, lastDamageSource: null,
   };
@@ -214,7 +225,9 @@ function autoChoose(game, actor) {
     // Prefer an active option early, then strengthen the best available attack/passive.
     const rankOf = id => actor.skills?.[id] || 0;
     const priority = id => (rankOf(id) === 0 && skills[id].type === 'active' ? 4 : 0)
-      + ({ power: 3, haste: 2, vitality: 1, multishot: 1, fireball: 2, quake: 1, dash: 1 }[id] || 0)
+      + ({ power: 3, haste: 2, vitality: 1, multishot: 1, fireball: 2, quake: 1, dash: 1,
+        chainLightning: 2, frostNova: 1.5, piercingThrust: 2, bladeWard: 1.5,
+        precision: 1.5, sustain: 1.5, focus: 1.5 }[id] || 0)
       - rankOf(id) * 0.2;
     options.sort((a, b) => priority(b) - priority(a));
     if (!chooseSkill(game, actor, options[0])) break;
@@ -243,13 +256,14 @@ function castRangedSkill(game, actor, slot, aimX, aimY) {
   // 只有登记了释放效果才算可施放；新增主动技能只需在表里加一条。
   const effect = CAST_EFFECTS[skillId];
   if (!effect) return false;
-  actor.cooldowns ||= {};
-  actor.cooldowns[skillId] = skillCooldown(skillId, rank);
+  const cooldown = focusCooldown(skillCooldown(skillId, rank), actor.skills?.focus || 0);
   const dx = (aimX ?? actor.x + 1) - actor.x;
   const dy = (aimY ?? actor.y) - actor.y;
   const len = hypot(dx, dy);
   const ux = dx / len, uy = dy / len;
-  effect(game, actor, rank, ux, uy);
+  if (effect(game, actor, rank, ux, uy) === false) return false;
+  actor.cooldowns ||= {};
+  actor.cooldowns[skillId] = cooldown;
   return true;
 }
 
@@ -278,7 +292,45 @@ const CAST_EFFECTS = {
     areaDamage(game, actor, actor.x, actor.y, radius, scaledDamage(actor, quakeDamage(rank)), SKILLS.quake.color, 'burst');
     pushEffect(game, { x: actor.x, y: actor.y, kind: 'ring', color: SKILLS.quake.color, radius, ttl: ACTIVES.quake.effectTtl });
   },
+  chainLightning(game, actor, rank, ux, uy) {
+    const def = ACTIVES.chainLightning;
+    const targets = skillTargets(game, actor);
+    const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const forward = target => (target.x - actor.x) * ux + (target.y - actor.y) * uy >= 0;
+    const candidates = targets.filter(target => distance(actor, target) <= def.firstRange && hasLine(game.map, actor, target));
+    candidates.sort((a, b) => Number(forward(b)) - Number(forward(a)) || distance(actor, a) - distance(actor, b));
+    let target = candidates[0];
+    if (!target) return false;
+    const points = [{ x: actor.x, y: actor.y }];
+    const hitIds = new Set();
+    let amount = scaledDamage(actor, chainLightningDamage(rank));
+    for (let i = 0; target && i < chainLightningTargets(rank); i++) {
+      hitIds.add(target.id ?? target);
+      points.push({ x: target.x, y: target.y });
+      damage(game, target, amount, actor);
+      const origin = target;
+      target = nearest(targets, origin.x, origin.y, Infinity,
+        next => alive(next) && !hitIds.has(next.id ?? next) && distance(origin, next) <= def.jumpRange && hasLine(game.map, origin, next));
+      amount *= def.jumpDamageMultiplier;
+    }
+    pushEffect(game, { kind: 'chainLightning', points, color: def.color, ttl: def.effectTtl });
+  },
+  frostNova(game, actor, rank) {
+    const def = ACTIVES.frostNova, radius = frostNovaRadius(rank);
+    const duration = def.slowDurationBase + def.slowDurationPerRank * (rank - 1);
+    for (const target of skillTargets(game, actor)) {
+      if (Math.hypot(target.x - actor.x, target.y - actor.y) > radius + (target.radius || 0) || !hasLine(game.map, actor, target)) continue;
+      damage(game, target, scaledDamage(actor, frostNovaDamage(rank)), actor);
+      if (alive(target)) target.slowUntil = Math.max(target.slowUntil || 0, (game.time || 0) + duration);
+    }
+    pushEffect(game, { kind: 'frostNova', x: actor.x, y: actor.y, radius, color: def.color, ttl: def.effectTtl });
+  },
 };
+
+function skillTargets(game, actor) {
+  return [...new Set([...monsterList(game), ...actorList(game)])]
+    .filter(target => alive(target) && target !== actor && !(game.phase === 'grace' && isActor(game, target)));
+}
 
 export function damage(game, target, amount, source = null) {
   if (!alive(target) || !(amount > 0)) return 0;
@@ -289,7 +341,18 @@ export function damage(game, target, amount, source = null) {
   const actorMultiplier = game?.phase === 'finale'
     ? COMBAT_BALANCE.finaleDamageMultiplier
     : game?.phase === 'hunt' ? COMBAT_BALANCE.huntDamageMultiplier : COMBAT_BALANCE.actorDamageMultiplier;
-  const dealt = Math.max(0, amount * (isActorHit ? actorMultiplier : 1));
+  const precision = Math.min(PASSIVE.precisionMaxRank, sourceActor?.skills?.precision || 0);
+  const critical = precision > 0 && sourceActor !== target && damageKind === 'actor' && source?.type !== 'zone'
+    && requireRng(game)() < precision * PASSIVE.precisionChancePerRank;
+  let dealt = Math.max(0, amount * (critical ? PASSIVE.precisionMultiplier : 1) * (isActorHit ? actorMultiplier : 1));
+  if (isActor(game, target) && damageKind !== 'zone' && source?.type !== 'zone' && target.shieldT > 0 && target.shieldHp > 0) {
+    const absorbed = Math.min(target.shieldHp, dealt);
+    target.shieldHp -= absorbed;
+    dealt -= absorbed;
+    if (target.shieldHp <= 0) target.shieldT = 0;
+    pushEffect(game, { x: target.x, y: target.y - (target.radius || 10), kind: 'text', text: `${critical ? '暴击 ' : ''}护盾-${Math.round(absorbed)}`, color: ACTIVES.bladeWard.color, ttl: 0.55 });
+    if (!(dealt > 0)) return 0;
+  }
   target.damageTakenByKind ||= { actor: 0, monster: 0, trap: 0, zone: 0 };
   target.damageTakenByKind[damageKind] = (target.damageTakenByKind[damageKind] || 0) + dealt;
   target.lastDamageKind = damageKind;
@@ -299,10 +362,11 @@ export function damage(game, target, amount, source = null) {
   target.hp = Math.max(0, (target.hp ?? target.maxHp ?? 0) - dealt);
   target.hitFlash = 0.12;
   if (sourceActor && sourceActor !== target) sourceActor.damageDealt = (sourceActor.damageDealt || 0) + dealt;
-  pushEffect(game, { x: target.x, y: target.y - (target.radius || 10), kind: 'text', text: `-${Math.round(dealt)}`, color: '#ff756b', ttl: 0.55 });
+  pushEffect(game, { x: target.x, y: target.y - (target.radius || 10), kind: 'text', text: `${critical ? '暴击 ' : ''}-${Math.round(dealt)}`, color: '#ff756b', ttl: 0.55 });
   if (target.hp <= 0) {
     target.alive = false;
     if (isActor(game, target)) {
+      target.shieldHp = 0; target.shieldT = 0;
       if (target.weaponType === weaponTypeOf('melee')) { target.meleeAction = null; target.meleeVisuals = []; target.attackHeld = false; target.attackPressed = false; }
       target.pendingChoices = 0;
       target.choices = [];
@@ -324,6 +388,14 @@ export function damage(game, target, amount, source = null) {
       dropGem(game, target, sourceActor ? (target.xp || 10) * 0.65 : (target.xp || 10));
       pushEffect(game, { x: target.x, y: target.y, kind: 'burst', color: target.color || '#86efac', radius: 28, ttl: 0.45 });
     }
+    if (sourceActor && sourceActor !== target && alive(sourceActor)) {
+      const rank = Math.min(PASSIVE.sustainMaxRank, sourceActor.skills?.sustain || 0);
+      const healed = Math.min(sourceActor.maxHp - sourceActor.hp, rank * PASSIVE.sustainHealPerRank);
+      if (healed > 0) {
+        sourceActor.hp += healed;
+        pushEffect(game, { x: sourceActor.x, y: sourceActor.y - 18, kind: 'text', text: `+${Math.round(healed)}`, color: SKILLS.sustain.color, ttl: 0.65 });
+      }
+    }
   }
   return dealt;
 }
@@ -335,6 +407,8 @@ export function updateCombat(game, dt) {
   game.gems ||= [];
   game.effects ||= [];
   for (const actor of actors) {
+    if (actor.shieldT > 0) actor.shieldT = Math.max(0, actor.shieldT - dt);
+    if (actor.shieldHp > 0 && !(actor.shieldT > 0)) actor.shieldHp = 0;
     if (!alive(actor)) { if (actor.weaponType === weaponTypeOf('melee')) { actor.meleeAction = null; actor.meleeVisuals = []; actor.attackHeld = false; actor.attackPressed = false; } continue; }
     tickActor(game, actor, dt);
   }
@@ -392,14 +466,16 @@ function tickMonster(game, monster, dt) {
   const reach = (monster.radius || 11) + (target.radius || 12) + 4;
   if (d <= reach) {
     if (monster.attackTimer <= 0) {
+      const shieldBefore = target.shieldHp || 0;
       const dealt = damage(game, target, monster.damage || 8, monster);
-      if (dealt) monster.attackTimer = monster.attackInterval || (monster.type === 'brute' ? 1.45 : 1.0);
+      if (dealt || (target.shieldHp || 0) < shieldBefore) monster.attackTimer = monster.attackInterval || (monster.type === 'brute' ? 1.45 : 1.0);
     }
     return;
   }
   // 速度兜底表已移到 balance.js 的 MONSTERS 表，与 spawnMonster 共用同一声明。
   // 注意用的是 fallbackSpeed 而非 spawnSpeed：历史行为两者本就不同。
-  const speed = monster.speed || (MONSTERS[monster.type]?.fallbackSpeed ?? MONSTER_FALLBACK.speed);
+  const slow = monster.slowUntil > (game.time || 0) ? ACTIVES.frostNova.slowMultiplier : 1;
+  const speed = (monster.speed || (MONSTERS[monster.type]?.fallbackSpeed ?? MONSTER_FALLBACK.speed)) * slow;
   const mx = dx / d * speed * dt, my = dy / d * speed * dt;
   moveEntity(game.map, monster, mx, my);
 }
@@ -499,7 +575,7 @@ function tickTraps(game, dt) {
       if (!alive(entity) || Math.hypot(entity.x - trap.x, entity.y - trap.y) > trap.r + (entity.radius || 0)) continue;
       entity.trapDamageTimer = (entity.trapDamageTimer || 0) - dt;
       if (entity.trapDamageTimer <= 0) {
-        damage(game, entity, 8, null);
+        damage(game, entity, 8, { type: 'trap' });
         entity.trapDamageTimer = 0.65;
         pushEffect(game, { x: trap.x, y: trap.y, kind: 'burst', color: '#fb7185', radius: trap.r, ttl: 0.28 });
       }
@@ -535,6 +611,7 @@ function levelMaxHp(level) { return COMBAT_BALANCE.baseMaxHp + (level - 1) * COM
 function classifyDamage(game, target, sourceActor, source) {
   if (sourceActor) return 'actor';
   if (source?.type === 'zone') return 'zone';
+  if (source?.type === 'trap') return 'trap';
   // 类型白名单改为查 MONSTERS 表，新增怪物类型时不会因漏改这里而静默归因失败。
   if (source && (monsterList(game).includes(source) || isKnownMonster(source.type))) return 'monster';
   if (!source && game?.phase === 'finale' && game.zone
@@ -593,12 +670,14 @@ function castMeleeSkill(game, actor, slot, aimX, aimY) {
     scaledDamage(actor, (actor.attackDamage || COMBAT_BALANCE.baseAttackDamage) * geometry.coefficient));
   // Presentation can finish its follow-through after the damage/action window.
   // These snapshots never participate in collision, damage, cooldowns or AI.
-  actor.meleeVisuals = [...(actor.meleeVisuals || []).filter(v => (game.time || 0) - v.startedAt < 1.25), {
-    id: actor.meleeAction.id, kind: id, angle, range: geometry.range, arc: geometry.arc, windup: geometry.windup,
-    startedAt: game.time || 0, originX, originY, x: actor.x, y: actor.y,
-  }].slice(-3);
+  if (geometry.coefficient > 0) {
+    actor.meleeVisuals = [...(actor.meleeVisuals || []).filter(v => (game.time || 0) - v.startedAt < 1.25), {
+      id: actor.meleeAction.id, kind: id, angle, range: geometry.range, arc: geometry.arc, windup: geometry.windup,
+      startedAt: game.time || 0, originX, originY, x: actor.x, y: actor.y,
+    }].slice(-3);
+  }
   actor.cooldowns ||= {};
-  actor.cooldowns[id] = def.cooldown;
+  actor.cooldowns[id] = focusCooldown(def.cooldown, actor.skills?.focus || 0);
   if (!geometry.windup) hitMelee(game, actor, actor.meleeAction);
   return true;
 }
@@ -623,6 +702,20 @@ const MELEE_SHAPES = {
       range: heavySlashRange(rank), arc: ACTIVES.heavySlash.arcDeg * Math.PI / 180,
       windup: ACTIVES.heavySlash.windup, coefficient: heavySlashCoefficient(rank),
     };
+  },
+  piercingThrust(game, actor, rank) {
+    return {
+      range: piercingThrustRange(rank), arc: ACTIVES.piercingThrust.arcDeg * Math.PI / 180,
+      windup: ACTIVES.piercingThrust.windup, coefficient: piercingThrustCoefficient(rank),
+    };
+  },
+  bladeWard(game, actor, rank) {
+    const def = ACTIVES.bladeWard;
+    actor.shieldHp = bladeWardShield(rank);
+    actor.shieldT = bladeWardDuration(rank);
+    pushEffect(game, { kind: 'bladeWard', x: actor.x, y: actor.y, radius: actor.radius + def.effectRadiusPadding, color: def.color, ttl: def.effectTtl });
+    // Keep the usual short active/recovery lock, without a damaging hit window.
+    return { range: 0, arc: 0, windup: 0, coefficient: 0 };
   },
 };
 function tickMelee(game, actor, dt) {
@@ -661,6 +754,7 @@ function circleIntersectsSector(actor, target, action) {
   return false;
 }
 function hitMelee(game, actor, action) {
+  if (!(action.damage > 0)) return;
   const visual = actor.meleeVisuals?.find(v => v.id === action.id);
   if (visual && visual.impactAt == null) {
     visual.impactX = actor.x; visual.impactY = actor.y; visual.impactAt = game.time || 0;

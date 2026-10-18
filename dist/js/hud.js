@@ -12,7 +12,8 @@ import { CONFIG } from './simulation.js';
 import {
   getSkills, getChoices, xpNeeded, PROGRESSION, COMBAT_BALANCE,
 } from './combat.js';
-import { MODES } from './modes.js';
+import { MODES, usesMeleeActions } from './modes.js';
+import { focusCooldown, skillCooldown } from './balance.js';
 import { $, show, timeText, beep, toast } from './dom.js';
 
 const SKILL_KEYS = ['Q', 'E', 'R'];
@@ -36,7 +37,9 @@ export function createHud(state, actions) {
     $('seed-label').textContent = `SEED ${game.seed}`;
     $('player-level').textContent = `LV. ${String(level).padStart(2, '0')}`;
     $('hp-fill').style.width = `${100 * player.hp / player.maxHp}%`;
-    $('hp-text').textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
+    const shield = player.alive && player.shieldT > 0 && player.shieldHp > 0
+      ? ` · 盾 ${Math.ceil(player.shieldHp)}` : '';
+    $('hp-text').textContent = `${Math.ceil(player.hp)} / ${player.maxHp}${shield}`;
     $('xp-fill').style.width = atMaxLevel ? '100%' : `${100 * player.xp / xpNeeded(level)}%`;
     $('xp-text').textContent = atMaxLevel
       ? '最高等级'
@@ -154,11 +157,13 @@ export function createHud(state, actions) {
       const id = player.activeSkills[slot];
       const def = skills[id];
       const cooldown = player.cooldowns[id] || 0;
+      const fullCooldown = def ? focusCooldown(usesMeleeActions(game.mode)
+        ? def.cooldown : skillCooldown(id, player.skills[id]), player.skills.focus || 0) : 0;
       const title = def
         ? `${def.name} · ${def.description}`
         : `在 ${skillLevelLabel} 级选择强化，最多三个主动技能`;
       const mask = cooldown
-        ? `<i class="cooldown-mask" style="height:${Math.min(100, cooldown / def.cooldown * 100)}%"></i>`
+        ? `<i class="cooldown-mask" style="height:${Math.min(100, cooldown / fullCooldown * 100)}%"></i>`
           + `<span class="cooldown-number">${cooldown.toFixed(1)}</span>`
         : '';
       return `<div class="skill-slot ${def ? '' : 'locked'}" title="${title}">`

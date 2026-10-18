@@ -363,6 +363,51 @@ click('menu-pause');
 makeMapCard('courtyard').dispatch('click');
 
 for (const mode of ['classic', 'melee']) {
+  scenario(`${mode}: 新技能卡选择不停战、键盘施放与护盾HUD`, () => {
+    const game = startMode(mode);
+    const player = game.actors[0];
+    const ids = mode === 'classic' ? ['chainLightning', 'frostNova'] : ['piercingThrust', 'bladeWard'];
+    for (const id of ids) {
+      player.pendingChoices = 1;
+      player.choices = [id, 'precision', 'focus'];
+      pumpFrames(8);
+      assert.equal(hidden('choices'), false);
+      assert.match(document.getElementById('choices').innerHTML, new RegExp(`data-choice="0"`));
+      assert.equal(game.paused, false);
+      const before = { time: game.time, x: player.x, y: player.y };
+      window.dispatch('keydown', { key: 'd' });
+      document.getElementById('choices').dispatch('click', { target: { closest: () => ({ dataset: { choice: '0' } }) } });
+      pumpFrames(8);
+      window.dispatch('keyup', { key: 'd' });
+      assert.ok(game.time > before.time, '选择技能不能暂停模拟');
+      assert.ok(player.x !== before.x || player.y !== before.y, '选择技能期间仍可移动');
+      assert.equal(player.skills[id], 1);
+      assert.equal(Boolean(player.attackHeld), false, '选择卡片不能触发普通挥刀');
+      assert.match(document.getElementById('skills-bar').innerHTML, new RegExp(ids.indexOf(id) ? '冰霜新星|护体刀阵' : '闪电链|穿云刺'));
+    }
+    // 在安全出生点附近放置一个耐打目标，用真实键盘入口触发两个新主动。
+    game.monsters = [{ id: 'smoke-skill-target', type: 'slime', x: player.x + 65, y: player.y,
+      radius: 11, hp: 1000, maxHp: 1000, alive: true, speed: 1, damage: 0, xp: 0, attackTimer: 99 }];
+    const enemy = game.monsters[0];
+    window.dispatch('keydown', { key: 'q' });
+    pumpFrames(40);
+    window.dispatch('keyup', { key: 'q' });
+    assert.ok(player.cooldowns[ids[0]] > 0, 'Q必须施放新技能');
+    if (mode === 'classic') assert.ok(enemy.hp < 1000, '闪电链必须命中目标');
+    window.dispatch('keydown', { key: 'e' });
+    pumpFrames(8);
+    window.dispatch('keyup', { key: 'e' });
+    assert.ok(player.cooldowns[ids[1]] > 0, 'E必须施放新技能');
+    if (mode === 'melee') {
+      assert.ok(player.shieldHp > 0);
+      assert.match(document.getElementById('hp-text').textContent, /盾/);
+    } else assert.ok(enemy.slowUntil > game.time, '冰环减速应生效');
+    assert.equal(game.paused, false);
+    assertMenuRecovery(mode);
+  });
+}
+
+for (const mode of ['classic', 'melee']) {
   scenario(`${mode}: 死亡清空输入、观战继续、重开与返回菜单恢复`, () => {
     let game = startMode(mode);
     holdInput(game);

@@ -67,6 +67,13 @@ export const PASSIVE = Object.freeze({
   bladeReachRangePerRank: 4,
   bladeReachArcDegPerRank: 6,
   bladeReachMaxRank: 5,
+  precisionMaxRank: 5,
+  precisionChancePerRank: 0.05,
+  precisionMultiplier: 1.5,
+  sustainMaxRank: 5,
+  sustainHealPerRank: 3,
+  focusMaxRank: 5,
+  focusReductionPerRank: 0.04,
   /** 迅捷同时缩短普攻间隔，复用 ATTACK 的系数。 */
 });
 
@@ -174,6 +181,27 @@ export const ACTIVES = Object.freeze({
     coefficientPerRank: 0.4,
     knockback: 24,
   }),
+  chainLightning: Object.freeze({
+    name: '闪电链', icon: 'ϟ', color: '#a6e4ff', maxRank: 4, cooldown: 7.5,
+    damageBase: 30, damagePerRank: 6, firstRange: 260,
+    targetsBase: 3, extraTargetAtRank: 3, jumpRange: 145, jumpDamageMultiplier: 0.75,
+    effectTtl: 0.65,
+  }),
+  frostNova: Object.freeze({
+    name: '冰霜新星', icon: '❄', color: '#8de4f2', maxRank: 4, cooldown: 9,
+    radiusBase: 125, radiusPerRank: 10, damageBase: 22, damagePerRank: 5,
+    slowMultiplier: 0.65, slowDurationBase: 2, slowDurationPerRank: 0.25, effectTtl: 0.9,
+  }),
+  piercingThrust: Object.freeze({
+    name: '穿云刺', icon: '⇢', color: '#b6e4ff', maxRank: 4, cooldown: 6.5,
+    windup: 0.22, rangeBase: 140, rangePerRank: 10, arcDeg: 30,
+    coefficientBase: 2.6, coefficientPerRank: 0.2,
+  }),
+  bladeWard: Object.freeze({
+    name: '护体刀阵', icon: '◇', color: '#9de9ca', maxRank: 4, cooldown: 10,
+    shieldBase: 36, shieldPerRank: 12, durationBase: 3.5, durationPerRank: 0.25,
+    effectTtl: 0.8, effectRadiusPadding: 18,
+  }),
 });
 
 /** 近战技能的公共动作窗口（与 MELEE_BALANCE 的普攻窗口无关）。 */
@@ -258,11 +286,23 @@ export const heavySlashRange = (rank) => ACTIVES.heavySlash.rangeBase + ACTIVES.
 export const heavySlashCoefficient = (rank) =>
   ACTIVES.heavySlash.coefficientBase + ACTIVES.heavySlash.coefficientPerRank * (rank - 1);
 
+export const chainLightningDamage = (rank) => ACTIVES.chainLightning.damageBase + ACTIVES.chainLightning.damagePerRank * (rank - 1);
+export const chainLightningTargets = (rank) => ACTIVES.chainLightning.targetsBase + (rank >= ACTIVES.chainLightning.extraTargetAtRank ? 1 : 0);
+export const frostNovaRadius = (rank) => ACTIVES.frostNova.radiusBase + ACTIVES.frostNova.radiusPerRank * (rank - 1);
+export const frostNovaDamage = (rank) => ACTIVES.frostNova.damageBase + ACTIVES.frostNova.damagePerRank * (rank - 1);
+export const piercingThrustRange = (rank) => ACTIVES.piercingThrust.rangeBase + ACTIVES.piercingThrust.rangePerRank * (rank - 1);
+export const piercingThrustCoefficient = (rank) => ACTIVES.piercingThrust.coefficientBase + ACTIVES.piercingThrust.coefficientPerRank * (rank - 1);
+export const bladeWardShield = (rank) => ACTIVES.bladeWard.shieldBase + ACTIVES.bladeWard.shieldPerRank * (rank - 1);
+export const bladeWardDuration = (rank) => ACTIVES.bladeWard.durationBase + ACTIVES.bladeWard.durationPerRank * (rank - 1);
+
+/** 灵能专注只缩短主动技能冷却；无该被动时保持原值。 */
+export const focusCooldown = (base, rank = 0) => base * (1 - Math.max(0, Math.min(PASSIVE.focusMaxRank, rank)) * PASSIVE.focusReductionPerRank);
+
 /** 主动技能实际冷却（按等级缩短）。 */
 export function skillCooldown(id, rank) {
   const def = ACTIVES[id];
   if (!def) return 0;
-  return def.cooldown * Math.max(def.cooldownFloor, 1 - rank * def.cooldownPerRank);
+  return def.cooldown * Math.max(def.cooldownFloor ?? 1, 1 - rank * (def.cooldownPerRank ?? 0));
 }
 
 /** 刀势延伸带来的射程加成。 */
@@ -304,4 +344,15 @@ export const DESCRIPTIONS = Object.freeze({
   heavySlash: `蓄力${ACTIVES.heavySlash.windup}秒，`
     + `斩击${range(ACTIVES.heavySlash.rangeBase, ACTIVES.heavySlash.rangePerRank, 0, 3)}像素，`
     + `造成${num(heavySlashCoefficient(1))}→${num(heavySlashCoefficient(ACTIVES.heavySlash.maxRank))}倍伤害并击退`,
+  chainLightning: `向前优先锁定${ACTIVES.chainLightning.firstRange}像素内可见敌人，首击伤害${num(chainLightningDamage(1))}→${num(chainLightningDamage(ACTIVES.chainLightning.maxRank))}；`
+    + `共命中${chainLightningTargets(1)}→${chainLightningTargets(ACTIVES.chainLightning.maxRank)}个目标，跳距${ACTIVES.chainLightning.jumpRange}像素、每跳保留${pct(ACTIVES.chainLightning.jumpDamageMultiplier)}%伤害；冷却${ACTIVES.chainLightning.cooldown}秒`,
+  frostNova: `周身${num(frostNovaRadius(1))}→${num(frostNovaRadius(ACTIVES.frostNova.maxRank))}像素冰爆，伤害${num(frostNovaDamage(1))}→${num(frostNovaDamage(ACTIVES.frostNova.maxRank))}；`
+    + `减速${pct(1 - ACTIVES.frostNova.slowMultiplier)}%，持续${num(ACTIVES.frostNova.slowDurationBase)}→${num(ACTIVES.frostNova.slowDurationBase + (ACTIVES.frostNova.maxRank - 1) * ACTIVES.frostNova.slowDurationPerRank)}秒；冷却${ACTIVES.frostNova.cooldown}秒`,
+  piercingThrust: `蓄力${ACTIVES.piercingThrust.windup}秒，刺穿前方${ACTIVES.piercingThrust.arcDeg}°、${num(piercingThrustRange(1))}→${num(piercingThrustRange(ACTIVES.piercingThrust.maxRank))}像素内敌人，`
+    + `造成${num(piercingThrustCoefficient(1))}→${num(piercingThrustCoefficient(ACTIVES.piercingThrust.maxRank))}倍伤害；冷却${ACTIVES.piercingThrust.cooldown}秒`,
+  bladeWard: `获得${num(bladeWardShield(1))}→${num(bladeWardShield(ACTIVES.bladeWard.maxRank))}点护盾，持续${num(bladeWardDuration(1))}→${num(bladeWardDuration(ACTIVES.bladeWard.maxRank))}秒；`
+    + `重复施放刷新护盾，风暴伤害穿透；冷却${ACTIVES.bladeWard.cooldown}秒`,
+  precision: `每级暴击率+${pct(PASSIVE.precisionChancePerRank)}%，最多${pct(PASSIVE.precisionChancePerRank * PASSIVE.precisionMaxRank)}%；攻击暴击造成${num(PASSIVE.precisionMultiplier)}倍伤害`,
+  sustain: `每级击杀敌人恢复${PASSIVE.sustainHealPerRank}生命，最多恢复${PASSIVE.sustainHealPerRank * PASSIVE.sustainMaxRank}；不超过最大生命`,
+  focus: `每级主动技能实际冷却缩短${pct(PASSIVE.focusReductionPerRank)}%，最多缩短${pct(PASSIVE.focusReductionPerRank * PASSIVE.focusMaxRank)}%`,
 });

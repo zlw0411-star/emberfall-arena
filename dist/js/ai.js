@@ -3,7 +3,10 @@ import { modeOf } from './modes.js';
 // 近战技能的触及范围必须与 combat.js 用同一份常量，否则 AI 会在
 // “以为打得到”而实际打不到的距离开技能。本模块不能 import combat.js（循环依赖），
 // 但 balance.js 是零依赖的数据层，可以安全共用。
-import { heavySlashRange, lungeDistance, whirlwindRadius } from './balance.js';
+import {
+  ACTIVES, heavySlashRange, frostNovaRadius,
+  lungeDistance, piercingThrustRange, whirlwindRadius,
+} from './balance.js';
 
 const GRID = 48;
 const BODY = 14;
@@ -268,16 +271,37 @@ function pursuitPoint(game, actor, target) {
   const scale = maxR / dz;
   return { x: zone.x + (target.x - zone.x) * scale, y: zone.y + (target.y - zone.y) * scale };
 }
-function aimAndCast(game, actor, target, retreatVector = null, retreating = false) {
+function aimAndCast(game, actor, target, threats = [], retreatVector = null, retreating = false) {
   if (!actor.ai) actor.ai = {};
   let direction = target || actor.ai?.lastAim || { x: actor.x + 1, y: actor.y };
   let castSlot = -1;
-  if (target) {
-    for (let i = 0; i < (actor.activeSkills || []).length; i++) {
-      const id = actor.activeSkills[i];
-      if ((actor.cooldowns?.[id] || 0) <= 0) { castSlot = i; break; }
+  for (let i = 0; i < (actor.activeSkills || []).length; i++) {
+    const id = actor.activeSkills[i];
+    if ((actor.cooldowns?.[id] || 0) > 0) continue;
+    const rank = actor.skills?.[id] || 1;
+    if (id === 'chainLightning') {
+      const firstRange = ACTIVES.chainLightning.firstRange;
+      const candidate = threats.find(t => distance(actor, t) <= firstRange
+        && lineClear(game.map, actor, t, 1));
+      if (!candidate) continue;
+      direction = candidate;
+      castSlot = i;
+      break;
     }
-  } else if (retreating && retreatVector && Math.hypot(retreatVector.x, retreatVector.y) > 0.1) {
+    if (id === 'frostNova') {
+      const radius = frostNovaRadius(rank);
+      const nearby = threats.filter(t => distance(actor, t) <= radius + (t.radius || 0)
+        && lineClear(game.map, actor, t, 1));
+      const pressed = nearby.some(t => distance(actor, t) <= 110 + (t.radius || 0));
+      if (!pressed && nearby.length < 2) continue;
+      castSlot = i;
+      if (nearby[0]) direction = nearby[0];
+      break;
+    }
+    // Existing ranged skills retain their previous ready-slot behavior.
+    if (target) { castSlot = i; break; }
+  }
+  if (castSlot < 0 && !target && retreating && retreatVector && Math.hypot(retreatVector.x, retreatVector.y) > 0.1) {
     castSlot = (actor.activeSkills || []).findIndex(id => id === 'dash' && (actor.cooldowns?.[id] || 0) <= 0);
   }
   if (retreating && castSlot >= 0 && actor.activeSkills?.[castSlot] === 'dash' && retreatVector) {
@@ -370,7 +394,7 @@ function thinkRanged(game, actor, dt) {
   }
 
   const aimTarget = combatTarget && lineClear(game.map, actor, combatTarget, actor.radius || 12) ? combatTarget : null;
-  const action = aimAndCast(game, actor, aimTarget, { x: mx, y: my }, retreating);
+  const action = aimAndCast(game, actor, aimTarget, threats, { x: mx, y: my }, retreating);
   return { mx, my, aimX: action.aimX, aimY: action.aimY, castSlot: action.castSlot };
 }
 
@@ -455,8 +479,18 @@ function thinkMelee(game, actor) {
         if (!lineClear(game.map, actor, end, actor.radius || 12) || blocked(game.map, end.x, end.y, actor.radius || 12) || safeTarget(game, { ...actor, ...end })) continue;
         direction = aim; castSlot = i; break;
       }
+      if (id === 'piercingThrust' && !retreating && !evading && visible
+        && d <= piercingThrustRange(rank) + (target.radius || 0)) {
+        direction = target; castSlot = i; break;
+      }
       if (id === 'whirlwind' && threats.some(t => distance(actor, t) <= whirlwindRadius(rank) && lineClear(game.map, actor, t, 0))) { castSlot = i; break; }
       if (id === 'heavySlash' && !retreating && !evading && visible && d <= heavySlashRange(rank)) { direction = target; castSlot = i; break; }
+      if (id === 'bladeWard') {
+        const hasShield = (actor.shieldT || 0) > 0 && (actor.shieldHp || 0) > 0;
+        const engaged = threats.some(t => distance(actor, t) <= 190);
+        const crisis = healthRatio(actor) < 0.55 && threats.length > 0;
+        if (!hasShield && (engaged || crisis)) { castSlot = i; break; }
+      }
     }
   }
   actor.ai.lastAim = { x: direction.x, y: direction.y };

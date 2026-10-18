@@ -1,8 +1,10 @@
 // Render-only sword choreography. Event positions are never advanced here.
+import {ACTIVES} from './balance.js';
 export const MELEE_VISUAL_TIMING = Object.freeze({
   lunge: Object.freeze({duration:.72,bodyDuration:.42}),
   whirlwind: Object.freeze({duration:.92,bodyDuration:.64}),
   heavySlash: Object.freeze({duration:1.05,bodyDuration:.72}),
+  piercingThrust: Object.freeze({duration:.9,bodyDuration:.55}),
 });
 const TAU=Math.PI*2;
 const clamp=n=>Math.max(0,Math.min(1,n));
@@ -63,10 +65,26 @@ function heavy(c,e,t,actor){
   c.globalAlpha*=clamp((.68-age)/.55);particles(c,r,a,age,'#f0a45d',13,arc);
  }c.restore();
 }
+function thrust(c,e,t,actor){
+ const w=finite(e.windup,ACTIVES.piercingThrust.windup),a=finite(e.angle),r=Math.max(1,finite(e.range,ACTIVES.piercingThrust.rangeBase)),arc=finite(e.arc,ACTIVES.piercingThrust.arcDeg*Math.PI/180),before=t<w;
+ const locked=!before&&Number.isFinite(e.impactAt),x=before?finite(actor.x):locked?finite(e.impactX,e.x):finite(e.x),y=before?finite(actor.y):locked?finite(e.impactY,e.y):finite(e.y);
+ c.save();c.translate(x,y);c.rotate(a);
+ if(before){const p=clamp(t/Math.max(.001,w));c.globalAlpha*=.35+p*.5;
+  for(let i=0;i<6;i++){const xx=23+i*(r-28)/6;line(c,'#77a8c2',xx,0,xx+4,0);}
+  for(const sign of [-1,1]){const xx=Math.cos(arc*.5)*r,yy=Math.sin(arc*.5)*r*sign;line(c,'#7da8bb',xx-9,yy,xx,yy,1);line(c,'#a9dff5',r-7,sign*5,r,0,1);}
+  line(c,'#e1f8ff',10-p*7,-3,28-p*7,-3,2);pixel(c,'#e1f8ff',16-p*7,-5,2);
+ }else{const age=t-w,p=ease(age/.14),fade=Math.pow(clamp((.9-t)/.5),1.2),tip=16+(r-16)*p;c.globalAlpha*=fade;
+  c.fillStyle='#6cabc1';c.beginPath();c.moveTo(18,-4);c.lineTo(Math.max(18,tip-18),-3);c.lineTo(tip,0);c.lineTo(Math.max(18,tip-18),3);c.lineTo(18,4);c.closePath();c.fill();
+  line(c,'#c7f3ff',17,0,tip,0,3);line(c,'#f1fcff',22,0,tip,0,1);
+  for(const sign of [-1,1])line(c,'#82c9df',30,sign*6,Math.max(30,tip-20),sign*3,1);
+  if(age>.05){c.globalAlpha*=clamp((.57-age)/.45);for(let i=0;i<7;i++){const xx=r*(.35+i*.085),yy=(i%2?1:-1)*(3+age*8);pixel(c,i%3?'#8cc9e1':'#e5fcff',xx,yy,i%3?1:2);}line(c,'#d4f9ff',tip-5,-5,tip,0,1);line(c,'#d4f9ff',tip-5,5,tip,0,1);}
+ }c.restore();
+}
 function actionAngle(action,t){
  const a=finite(action.angle),arc=finite(action.arc,1.5),w=finite(action.windup),active=Math.max(.001,finite(action.active,.08));
  if(action.kind==='whirlwind')return a+ease(t/.64)*Math.PI*3;
  if(action.kind==='lunge')return a-.7+1.4*ease(t/.26);
+ if(action.kind==='piercingThrust')return a;
  if(action.kind==='heavySlash')return t<w?a-arc*.5-.3*clamp(t/w):a-arc*.5+arc*ease((t-w)/.24);
  if(t<w)return a-arc*.5*ease(t/Math.max(w,.001));
  const hit=clamp((t-w)/Math.max(.13,active));
@@ -75,7 +93,7 @@ function actionAngle(action,t){
 export function drawMeleeVisuals(c,actor,renderTime,{timeOffset=0}={}){
  let visible=false,pose=null;
  for(const e of (actor.meleeVisuals||[]).slice(-3)){const timing=MELEE_VISUAL_TIMING[e.kind];if(!timing)continue;const t=finite(renderTime)-finite(e.startedAt);if(t<0||t>=timing.duration)continue;visible=true;
-  if(e.kind==='lunge')lunge(c,e,t);else if(e.kind==='whirlwind')whirlwind(c,e,t);else heavy(c,e,t,actor);
+  if(e.kind==='lunge')lunge(c,e,t);else if(e.kind==='whirlwind')whirlwind(c,e,t);else if(e.kind==='piercingThrust')thrust(c,e,t,actor);else heavy(c,e,t,actor);
   if(t<timing.bodyDuration)pose=actionAngle(e,t);
  }
  const action=actor.meleeAction;
