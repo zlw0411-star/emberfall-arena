@@ -3,6 +3,7 @@ import {createActor,configureActorForMode,updateCombat,castSkill,damage,PROGRESS
 import {modeOf,normalizeMode} from './modes.js';
 import {think} from './ai.js';
 import {MONSTERS,MONSTER_SPAWN_POLICY} from './balance.js';
+import {BIOMES,normalizeBiome} from './biomes.js';
 
 /**
  * 输入适配：按当前模式声明传递鼠标瞄准与左键攻击。
@@ -24,7 +25,10 @@ export const CONFIG={actorCount:MATCH_SIZE,simulationHz:60,grace:90,pvpNotice:10
 const names=['你','苔痕','鸦羽','夜行者','烛影','赤砂','雾凇','游隼','青芒','松烟','星屑','玄石'];
 const colors=['#f2be65','#7bc796','#aa9de6','#6bb8dc','#e39ca4','#df9764','#9ccec6','#c7c28a','#a6cb68','#a89a7d','#e2a8d9','#829bba'];
 export function createGame(seed=Date.now(),options={}){
-  const map=generateMap(seed),rng=rngFromSeed(seed);
+  // Map selection has its own seeded stream; it never consumes combat/spawn RNG.
+  const maps=Object.keys(BIOMES);
+  const biome=options?.mapId==='random'?maps[Math.floor(rngFromSeed('biome:'+seed)()*maps.length)]:normalizeBiome(options?.mapId);
+  const map=generateMap(seed,{biome}),rng=rngFromSeed(seed);
   const game={seed,map,rng,time:0,phase:'grace',actors:[],monsters:[],gems:[],bullets:[],effects:[],events:[],zone:null,result:null,paused:false,pvpNoticeSent:false,nextId:100,spawnTimer:0,gemTimer:0,spawnCount:0,gemSpawnCount:0};
   Object.defineProperty(game,'mode',{value:normalizeMode(options?.mode),enumerable:true});
   game.actors=map.spawnPoints.map((p,i)=>{

@@ -1,3 +1,5 @@
+import { normalizeBiome } from './biomes.js';
+
 export const MATCH_SIZE = 12;
 const WORLD_SIZE = 2048;
 const TILE_SIZE = 32;
@@ -138,7 +140,9 @@ export function randomFree(map, rng, padding = 24) {
 
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
-export function generateMap(seed = 1) {
+export function generateMap(seed = 1, { biome = 'courtyard' } = {}) {
+  biome = normalizeBiome(biome);
+  if (biome !== 'courtyard') return generateBiomeMap(seed, biome);
   const rng = rngFromSeed(seed);
   const map = {
     width: WORLD_SIZE, height: WORLD_SIZE, tileSize: TILE_SIZE,
@@ -195,6 +199,106 @@ export function generateMap(seed = 1) {
   for (let i = 0; i < 56; i++) {
     const p = randomFree(map, rng, 28);
     if (map.freePoints.every(q => dist(q, p) >= 38) && !map.traps.some(t => dist(t, p) < t.r + 22)) map.freePoints.push(p);
+  }
+  return map;
+}
+
+// Biome geometry uses isolated, connected clusters on a 320 px lattice.
+// Every lattice cluster fits inside a 224 px square, leaving >= 96 px geometric
+// lanes (64 px of center travel for a radius-16 body) and a clear perimeter.
+// Frost and swamp also retain a 96 px central cross; desert pillars interrupt
+// the direct center approach with open detours outside the 160 px finale pad.
+// Clusters have no loops, keeping free spawns and resources out of sealed rooms.
+function generateBiomeMap(seed, biome) {
+  const rng = rngFromSeed(seed);
+  const map = {
+    width: WORLD_SIZE, height: WORLD_SIZE, tileSize: TILE_SIZE,
+    obstacles: [], traps: [], spawnPoints: [], freePoints: [], seed, biome
+  };
+  const center = { x: WORLD_SIZE / 2, y: WORLD_SIZE / 2 };
+  for (let i = 0; i < MATCH_SIZE; i++) {
+    const angle = -Math.PI / 2 + i * Math.PI * 2 / MATCH_SIZE;
+    map.spawnPoints.push({ x: center.x + Math.cos(angle) * 790, y: center.y + Math.sin(angle) * 790 });
+  }
+
+  // Rotating whole clusters creates varied corners while preserving their
+  // connected, hole-free shape and the open lanes around their footprint.
+  function placeCluster(cx, cy, pieces, turns) {
+    const rectangles = pieces.map(piece => {
+      let { x, y, w, h, kind } = piece;
+      for (let i = 0; i < turns; i++) [x, y, w, h] = [-y - h, x, h, w];
+      return { x: cx + x, y: cy + y, w, h, kind };
+    });
+    if (rectangles.some(rect =>
+      circleIntersectsRect(center.x, center.y, 160, rect) ||
+      map.spawnPoints.some(p => circleIntersectsRect(p.x, p.y, 100, rect)))) return;
+    map.obstacles.push(...rectangles);
+  }
+
+  const grid = [224, 544, 864, 1184, 1504, 1824];
+  for (let row = 0; row < grid.length; row++) for (let col = 0; col < grid.length; col++) {
+    const cx = grid[col], cy = grid[row];
+    const chance = biome === 'desert' ? 0.56 : biome === 'frost' ? 0.86 : 0.82;
+    if (rng() > chance) continue;
+    const turns = Math.floor(rng() * 4);
+    let pieces;
+    if (biome === 'desert') {
+      const w = 70 + Math.floor(rng() * 31), h = 96 + Math.floor(rng() * 39);
+      // Broad pillars and attached boulders leave long, open sight lines.
+      pieces = [{ x: -w / 2, y: -h / 2, w, h, kind: 'rock' }];
+      if (rng() < 0.72) pieces.push({ x: w / 2 - 12, y: -24, w: 44 + Math.floor(rng() * 18), h: 48, kind: 'rock' });
+      if (rng() < 0.35) pieces.push({ x: -w / 2 - 30, y: 10, w: 42, h: 42, kind: 'rock' });
+    } else if (biome === 'frost') {
+      const length = 176 + Math.floor(rng() * 49), thickness = 28 + Math.floor(rng() * 9);
+      const half = length / 2;
+      // Alternating long walls and open L shapes form staggered passages.
+      pieces = [{ x: -half, y: -half, w: thickness, h: length, kind: 'wall' }];
+      if ((row + col) % 3 !== 0) pieces.push({ x: -half, y: half - thickness, w: length, h: thickness, kind: 'wall' });
+    } else {
+      const trunk = 144 + Math.floor(rng() * 29);
+      // Roots join the trunk with a solid overlap. The branching silhouette
+      // shelters dry landing spots without making small enclosed rooms.
+      pieces = [
+        { x: -20, y: -trunk / 2, w: 40, h: trunk, kind: 'rock' },
+        { x: -88, y: -42, w: 108, h: 30, kind: 'rock' },
+        { x: -20, y: 22, w: 108, h: 30, kind: 'rock' }
+      ];
+      if (rng() < 0.45) pieces.push({ x: -62, y: -66, w: 28, h: 42, kind: 'ruin' });
+    }
+    placeCluster(cx, cy, pieces, turns);
+  }
+
+  if (biome === 'desert') {
+    // Four pillars break direct sight lines into the center while retaining
+    // the sparse outer rock field and a clear 180 px radius inside the pillars.
+    for (let side = 0; side < 4; side++) {
+      placeCluster(center.x, center.y, [{ x: -236, y: -72, w: 56, h: 144, kind: 'rock' }], side);
+    }
+  }
+
+  const trapPlan = biome === 'desert'
+    ? [{ type: 'mud', count: 12, min: 27, span: 12 }, { type: 'spike', count: 16, min: 21, span: 8 }]
+    : biome === 'frost'
+      ? [{ type: 'mud', count: 12, min: 25, span: 11 }, { type: 'spike', count: 22, min: 21, span: 9 }]
+      : [{ type: 'mud', count: 27, min: 38, span: 22 }, { type: 'spike', count: 10, min: 21, span: 8 }];
+  for (const plan of trapPlan) for (let i = 0; i < plan.count; i++) {
+    const r = plan.min + rng() * plan.span;
+    for (let attempt = 0; attempt < 180; attempt++) {
+      const p = { x: 112 + rng() * 1824, y: 112 + rng() * 1824 };
+      // The cross and perimeter stay dry so every quadrant retains a broad
+      // route around even the swamp's larger slowing pools.
+      if (Math.abs(p.x - center.x) < 48 + r || Math.abs(p.y - center.y) < 48 + r) continue;
+      if (blocked(map, p.x, p.y, r + 8)) continue;
+      if (dist(p, center) < 160 + r || map.spawnPoints.some(spawn => dist(p, spawn) < 100 + r)) continue;
+      if (map.traps.some(trap => dist(p, trap) < trap.r + r + 40)) continue;
+      map.traps.push({ x: p.x, y: p.y, r, type: plan.type, offset: rng() * 4 });
+      break;
+    }
+  }
+
+  for (let attempt = 0; attempt < 1800 && map.freePoints.length < 56; attempt++) {
+    const p = randomFree(map, rng, 28);
+    if (map.freePoints.every(q => dist(q, p) >= 38) && !map.traps.some(trap => dist(trap, p) < trap.r + 22)) map.freePoints.push(p);
   }
   return map;
 }

@@ -3,6 +3,7 @@ import { CONFIG, createGame, stepGame } from '../dist/js/simulation.js';
 const SIM_HZ = Math.max(1, Number(process.env.SIM_HZ) || 30);
 const DT = 1 / SIM_HZ;
 const GAME_MODE = process.env.GAME_MODE === 'melee' ? 'melee' : 'classic';
+const GAME_MAP = process.env.GAME_MAP || undefined;
 // Give the final capped step one frame of observation in case settlement needs it.
 const MAX_SECONDS = CONFIG.matchLimit + DT;
 const SEEDS = process.argv.slice(2).length ? process.argv.slice(2) : ['sim-101', 'sim-202', 'sim-303'];
@@ -13,7 +14,7 @@ function actorsOf(game) {
 }
 
 function rowFor(seed) {
-  const game = createGame(seed, { mode: GAME_MODE });
+  const game = createGame(seed, { mode: GAME_MODE, ...(GAME_MAP ? { mapId: GAME_MAP } : {}) });
   const initialActors = actorsOf(game);
   if (initialActors.length !== 12 || initialActors.filter(actor => actor.isPlayer).length !== 1) {
     throw new Error(`${seed}: expected a 12-actor roster with exactly one player`);
@@ -97,6 +98,7 @@ function rowFor(seed) {
   return {
     seed,
     mode: game.mode,
+    map: game.map.biome || game.map.id || 'courtyard',
     hz: SIM_HZ,
     endSeconds: game.result?.time ?? game.time,
     winner: game.result ? (game.result.winnerId ?? 'draw') : 'unfinished',
@@ -111,9 +113,10 @@ function rowFor(seed) {
 }
 
 const rows = SEEDS.map(rowFor);
-console.table(rows.map(({ seed, mode, hz, endSeconds, winner, livingAtEnd, firstMaxLevelSeconds, finaleSeconds, reachedTarget, deathCounts, bugs }) => ({
+console.table(rows.map(({ seed, mode, map, hz, endSeconds, winner, livingAtEnd, firstMaxLevelSeconds, finaleSeconds, reachedTarget, deathCounts, bugs }) => ({
   seed,
   mode,
+  map,
   hz,
   end: `${Number(endSeconds).toFixed(1)}s`,
   winner,

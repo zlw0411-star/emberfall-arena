@@ -73,6 +73,15 @@ function makeElement(id = '') {
 
 // 模式选择卡：app.js/overlays.js 会用 querySelectorAll('[data-mode]') 遍历并绑定 onclick
 const modeCards = new Map();
+const mapCards = new Map();
+function makeMapCard(mapId) {
+  if (!mapCards.has(mapId)) {
+    const card = makeElement(`map-card-${mapId}`);
+    card.dataset.map = mapId;
+    mapCards.set(mapId, card);
+  }
+  return mapCards.get(mapId);
+}
 function makeModeCard(mode) {
   if (!modeCards.has(mode)) {
     const card = makeElement(`mode-card-${mode}`);
@@ -86,6 +95,7 @@ globalThis.document = {
   getElementById(id) { return elements.get(id) ?? makeElement(id); },
   querySelectorAll(selector) {
     if (selector === '[data-mode]') return [...modeCards.values()];
+    if (selector === '[data-map]') return [...mapCards.values()];
     return [];
   },
   querySelector: () => null,
@@ -136,6 +146,7 @@ process.on('unhandledRejection', (e) => {
 // 因为 app.js 顶层就会 bind() 并遍历 querySelectorAll('[data-mode]')）
 makeModeCard('classic');
 makeModeCard('melee');
+for (const mapId of ['courtyard', 'desert', 'frost', 'swamp', 'random']) makeMapCard(mapId);
 
 // 加载真实入口；它会在模块顶层查询 DOM 并注册事件
 await import('../dist/js/app.js');
@@ -311,6 +322,46 @@ function assertMenuRecovery(mode) {
   assertFreshGame(mode, 'start-button');
 }
 
+const { BIOMES, biomeOf } = await import('../dist/js/biomes.js');
+for (const mode of ['classic', 'melee']) for (const mapId of Object.keys(BIOMES)) {
+  scenario(`${mode}/${mapId}: 地图选择、模式切换、地图锁定与重开`, () => {
+    click('menu-pause');
+    makeMapCard(mapId).dispatch('click');
+    makeModeCard(mode).dispatch('click');
+    assert.equal(debug.state.selectedMap, mapId);
+    assert.equal(biomeOf(debug.state.game.map).id, mapId, '切换玩法不能丢失地图选择');
+    assert.equal(mapCards.get(mapId).classList.contains('selected'), true);
+    click('start-button');
+    pumpFrames(8);
+    const game = debug.state.game;
+    assert.equal(biomeOf(game.map).id, mapId);
+    assert.equal(document.getElementById('world-map-name').textContent, BIOMES[mapId].name);
+    assert.equal(document.getElementById('result-map').textContent, BIOMES[mapId].name);
+    makeMapCard(mapId === 'desert' ? 'frost' : 'desert').dispatch('click');
+    assert.equal(debug.state.game, game, '开局后地图不可切换');
+    click('pause-button');
+    assertFreshGame(mode, 'restart-pause');
+    assert.equal(biomeOf(debug.state.game.map).id, mapId, '重开应保留指定地图');
+    assertMenuRecovery(mode);
+    assert.equal(biomeOf(debug.state.game.map).id, mapId);
+  });
+}
+scenario('随机地图：显示实际地图且菜单保留随机选项', () => {
+  click('menu-pause');
+  makeMapCard('random').dispatch('click');
+  click('start-button');
+  pumpFrames(8);
+  assert.equal(debug.state.selectedMap, 'random');
+  const actual = biomeOf(debug.state.game.map);
+  assert.ok(Object.hasOwn(BIOMES, actual.id));
+  assert.equal(document.getElementById('world-map-name').textContent, actual.name);
+  assertMenuRecovery(debug.state.game.mode);
+  assert.equal(debug.state.selectedMap, 'random');
+});
+// 后面的死亡/结算回归继续使用原庭院，不与地图选择场景互相污染。
+click('menu-pause');
+makeMapCard('courtyard').dispatch('click');
+
 for (const mode of ['classic', 'melee']) {
   scenario(`${mode}: 死亡清空输入、观战继续、重开与返回菜单恢复`, () => {
     let game = startMode(mode);
@@ -389,6 +440,18 @@ for (const mode of ['classic', 'melee']) {
 }
 
 // 用模式注册表驱动一次渲染，确认第三个模式不会让渲染器崩
+// 同一个种子切换地图必须重烘焙，反复渲染同图仍复用缓存。
+const mapRenderer = new Renderer(makeElement('map-cache-canvas'), makeElement('map-cache-minimap'));
+let previousTerrain;
+for (const mapId of Object.keys(BIOMES)) {
+  const game = createGame('same-seed-different-maps', { mapId });
+  mapRenderer.draw(game);
+  assert.notEqual(mapRenderer.terrain, previousTerrain, `${mapId}复用了上一张地图地形`);
+  previousTerrain = mapRenderer.terrain;
+  mapRenderer.draw(game);
+  assert.equal(mapRenderer.terrain, previousTerrain, '相同地图不应每帧重新烘焙');
+}
+
 const modes = await import('../dist/js/modes.js');
 modes.registerMode({ ...modes.MODES.classic, id: 'smoke-third', name: '烟雾模式' });
 try {

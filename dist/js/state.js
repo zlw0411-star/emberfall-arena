@@ -10,6 +10,8 @@
 export const state = {
   /** 主菜单当前选中、但尚未开始的模式。 */
   selectedMode: 'classic',
+  /** 菜单地图选择；random 在每局开始时按新种子重新抽取。 */
+  selectedMap: 'courtyard',
   /** 当前对局；未开始时也是一局「演示」对局。 */
   game: null,
   /** 是否已经进入对局（主菜单 vs 战场）。 */

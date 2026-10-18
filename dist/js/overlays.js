@@ -7,6 +7,7 @@
 import { createGame, CONFIG } from './simulation.js';
 import { getSkills, chooseSkill } from './combat.js';
 import { MODES, normalizeMode } from './modes.js';
+import { BIOMES, biomeOf, normalizeBiome } from './biomes.js';
 import { $, show, beep, toast } from './dom.js';
 import { drawHero } from './renderer.js';
 
@@ -31,6 +32,32 @@ export function createFlow(state, input, renderer, portraitCtx) {
 
   // ---- 模式选择 ---------------------------------------------------------
 
+  function syncMap() {
+    const info = biomeOf(state.game.map);
+    $('world-map-name').textContent = info.name;
+    $('world-map-en').textContent = info.en.toUpperCase();
+    $('result-map').textContent = info.name;
+    document.body.dataset.biome = info.id;
+    $('map-description').textContent = state.selectedMap === 'random'
+      ? `每局从${Object.keys(BIOMES).length}张地图中随机选择，开局后显示本局战场。`
+      : `${info.description} ${info.hazards.mud}会减速，${info.hazards.spike}预警后造成伤害。`;
+    for (const card of document.querySelectorAll('[data-map]')) {
+      const selected = card.dataset.map === state.selectedMap;
+      card.classList.toggle('selected', selected);
+      card.setAttribute('aria-pressed', String(selected));
+    }
+  }
+
+  function selectMap(mapId) {
+    if (state.started) return;
+    state.selectedMap = mapId === 'random' ? 'random' : normalizeBiome(mapId);
+    input.clearInput();
+    state.game = createGame(state.game.seed, { mode: state.selectedMode, mapId: state.selectedMap });
+    state.choiceKey = '';
+    syncMode();
+    return state.game;
+  }
+
   function syncMode() {
     const mode = state.started ? state.game.mode : state.selectedMode;
     const info = MODES[mode];
@@ -48,13 +75,14 @@ export function createFlow(state, input, renderer, portraitCtx) {
     portraitCtx.clearRect(0, 0, 48, 48);
     drawHero(portraitCtx, 24, 25, '#f2be65', 0, false, 1.45, false,
       info.portraitPose ? { ...info.portraitPose } : null);
+    syncMap();
   }
 
   function selectMode(mode) {
     if (state.started) return;
     state.selectedMode = normalizeMode(mode);
     input.clearInput();
-    state.game = createGame(state.game.seed, { mode: state.selectedMode });
+    state.game = createGame(state.game.seed, { mode: state.selectedMode, mapId: state.selectedMap });
     state.choiceKey = '';
     syncMode();
     return state.game;
@@ -64,7 +92,7 @@ export function createFlow(state, input, renderer, portraitCtx) {
 
   function begin() {
     input.clearInput();
-    state.game = createGame(Date.now(), { mode: state.selectedMode });
+    state.game = createGame(Date.now(), { mode: state.selectedMode, mapId: state.selectedMap });
     state.started = true;
     state.deathDismissed = false;
     state.spectateId = null;
@@ -91,7 +119,7 @@ export function createFlow(state, input, renderer, portraitCtx) {
     state.deathDismissed = false;
     state.spectateId = null;
     state.choiceKey = '';
-    state.game = createGame(Date.now(), { mode: state.selectedMode });
+    state.game = createGame(Date.now(), { mode: state.selectedMode, mapId: state.selectedMap });
     state.accumulator = 0;
     clearTimeout(toast.timer);
     for (const id of MENU_OVERLAYS) show(id, false);
@@ -162,6 +190,14 @@ export function createFlow(state, input, renderer, portraitCtx) {
   // ---- 绑定到 DOM -------------------------------------------------------
 
   function bind() {
+    $('map-count').textContent = `${String(Object.keys(BIOMES).length).padStart(2, '0')} ARENAS`;
+    $('map-picker').innerHTML = Object.values(BIOMES).map((info) =>
+      `<button class="map-card" data-map="${info.id}" aria-pressed="false" style="--map-accent:${info.accent}">`
+      + `<span class="map-art map-art-${info.id}" aria-hidden="true">${info.icon}</span>`
+      + `<span class="map-title">${info.name}</span></button>`).join('');
+    for (const card of document.querySelectorAll('[data-map]')) {
+      card.onclick = () => selectMap(card.dataset.map);
+    }
     $('start-button').onclick = begin;
     for (const id of ['restart-pause', 'restart-death', 'restart-result']) $(id).onclick = begin;
     for (const card of document.querySelectorAll('[data-mode]')) {
@@ -192,7 +228,7 @@ export function createFlow(state, input, renderer, portraitCtx) {
   }
 
   return {
-    bind, syncMode, selectMode, begin, returnMenu,
+    bind, syncMode, selectMode, selectMap, begin, returnMenu,
     pause, togglePause, pick, openHelp, closeHelp, spectate, toggleSound,
     /** 供 HUD 复用的对比基线重置。 */
     resetComparisons,
