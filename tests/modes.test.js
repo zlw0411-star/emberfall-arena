@@ -16,10 +16,19 @@ import {
 import {
   SKILLS, MELEE_SKILLS, getSkills, configureActorForMode, createActor, castSkill,
 } from '../dist/js/combat.js';
-import { createGame } from '../dist/js/simulation.js';
+import { createGame, stepGame } from '../dist/js/simulation.js';
 import { think } from '../dist/js/ai.js';
 
 const map = { width: 600, height: 400, obstacles: [], traps: [] };
+
+function pointerArena(mode) {
+  const game = createGame(`pointer-registry-${mode}`, { mode });
+  const actor = configureActorForMode(createActor('attacker', '刀手', 200, 200, true), mode);
+  const target = createActor('target', '目标', 200, 150, true);
+  target.attackTimer = Infinity;
+  Object.assign(game, { map, phase: 'hunt', time: 100, actors: [actor, target], monsters: [], gems: [], bullets: [], effects: [], events: [] });
+  return { game, actor, target };
+}
 
 test('every mode declares the complete key set the modules consume', () => {
   const required = [
@@ -160,6 +169,78 @@ test('registering a third mode requires no new branch in the modules', async () 
     unregisterMode('trial');
   }
   assert.equal(Object.hasOwn(MODES, 'trial'), false, 'cleanup failed');
+});
+
+test('a melee mode registered after simulation import accepts clicks and held attacks', () => {
+  const id = 'pointer-melee';
+  registerMode({ ...MODES.melee, id });
+  try {
+    const { game, actor, target } = pointerArena(id);
+    const aim = { aimX: actor.x, aimY: actor.y - 100 };
+    stepGame(game, 1 / 60, { ...aim, attackPressed: true, attackHeld: false });
+    assert.ok(Math.abs(actor.aimAngle + Math.PI / 2) < 1e-6, 'registered mode ignored upward aim');
+    assert.equal(actor.meleeAction?.kind, 'basic', 'a click did not start a swing');
+    const firstAction = actor.meleeAction.id;
+    for (let i = 0; i < 45; i++) stepGame(game, 1 / 60, { ...aim, attackHeld: true });
+    assert.equal(actor.attackHeld, true);
+    assert.equal(actor.meleeAction?.kind, 'basic', 'holding attack did not start another swing');
+    assert.notEqual(actor.meleeAction.id, firstAction);
+    assert.ok(target.hp < target.maxHp, 'registered melee attacks never damaged the target');
+  } finally {
+    unregisterMode(id);
+  }
+});
+
+test('a registered melee mode passes AI attack input into combat', () => {
+  const id = 'pointer-melee-ai';
+  registerMode({ ...MODES.melee, id });
+  try {
+    const { game, actor, target } = pointerArena(id);
+    actor.isPlayer = false;
+    stepGame(game, 1 / 60);
+    assert.equal(actor.attackHeld, true, 'AI attack input was dropped');
+    assert.ok(Math.abs(actor.aimAngle + Math.PI / 2) < 1e-6);
+    assert.equal(actor.meleeAction?.kind, 'basic');
+    for (let i = 0; i < 15; i++) stepGame(game, 1 / 60);
+    assert.ok(target.hp < target.maxHp, 'AI swing never damaged its nearby target');
+  } finally {
+    unregisterMode(id);
+  }
+});
+
+test('pointer input follows the latest registered flag, including disabling it', () => {
+  const id = 'pointer-toggle';
+  registerMode({ ...MODES.melee, id, usesPointerAttack: false });
+  try {
+    const { game, actor } = pointerArena(id);
+    const input = { aimX: actor.x, aimY: actor.y - 100, attackPressed: true, attackHeld: true };
+    stepGame(game, 1 / 60, input);
+    assert.equal(actor.aimAngle, 0);
+    assert.equal(actor.attackHeld, false);
+    assert.equal(actor.meleeAction, null);
+
+    registerMode({ ...MODES[id], usesPointerAttack: true });
+    stepGame(game, 1 / 60, input);
+    assert.ok(Math.abs(actor.aimAngle + Math.PI / 2) < 1e-6, 'overwriting the flag did not enable pointer input');
+    assert.equal(actor.attackHeld, true);
+    assert.equal(actor.meleeAction?.kind, 'basic');
+
+    registerMode({ ...MODES[id], usesPointerAttack: false });
+    const disabled = pointerArena(id);
+    stepGame(disabled.game, 1 / 60, input);
+    assert.equal(disabled.actor.aimAngle, 0, 'overwriting the flag did not disable pointer aim');
+    assert.equal(disabled.actor.attackHeld, false);
+    assert.equal(disabled.actor.meleeAction, null);
+
+    registerMode({ ...MODES.classic, id });
+    const ranged = pointerArena(id);
+    stepGame(ranged.game, 1 / 60, input);
+    assert.equal(ranged.actor.aimAngle, undefined);
+    assert.equal(ranged.actor.attackHeld, undefined);
+    assert.equal(ranged.actor.attackPressed, undefined);
+  } finally {
+    unregisterMode(id);
+  }
 });
 
 test('registerMode rejects incomplete definitions instead of leaving a half mode', () => {

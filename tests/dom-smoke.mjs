@@ -1,6 +1,6 @@
 // DOM 冒烟测试：模拟全等不覆盖 app.js / renderer.js 的 DOM 路径，
 // 这里用一个最小 DOM + Canvas mock 把真实入口跑起来，抓运行时错误。
-import { readFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
 
 const errors = [];
 const calls = { fillRect: 0, arc: 0, fillText: 0, stroke: 0, drawImage: 0 };
@@ -61,7 +61,10 @@ function makeElement(id = '') {
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
     querySelectorAll: () => [], querySelector: () => null, closest: () => null,
     getContext: () => makeCtx(),
-    setPointerCapture() {}, releasePointerCapture() {}, hasPointerCapture: () => false,
+    _captures: new Set(),
+    setPointerCapture(id) { this._captures.add(id); },
+    releasePointerCapture(id) { this._captures.delete(id); },
+    hasPointerCapture(id) { return this._captures.has(id); },
     tabIndex: 0,
   };
   elements.set(id, el);
@@ -110,7 +113,9 @@ globalThis.window = {
 let pendingFrame = null;
 globalThis.requestAnimationFrame = (cb) => { pendingFrame = cb; return 1; };
 globalThis.cancelAnimationFrame = () => { pendingFrame = null; };
-globalThis.performance = globalThis.performance ?? { now: () => Date.now() };
+// performance.now() 和 rAF 共用单调时钟，重开不会跳回真实时间。
+let frameTime = 0;
+globalThis.performance = { now: () => frameTime };
 globalThis.setTimeout = globalThis.setTimeout ?? (() => 0);
 globalThis.clearTimeout = globalThis.clearTimeout ?? (() => {});
 globalThis.AudioContext = class { constructor() { throw new Error('audio disabled in smoke test'); } };
@@ -137,15 +142,17 @@ await import('../dist/js/app.js');
 
 // ---- 驱动真实主循环 ----------------------------------------------------
 const { Renderer } = await import('../dist/js/renderer.js');
-const { createGame, stepGame } = await import('../dist/js/simulation.js');
+const { createGame, stepGame, CONFIG } = await import('../dist/js/simulation.js');
 
 /** 推进 n 帧（每帧 16.7ms），让 app.js 自己的 frame() 跑起来。 */
-function pumpFrames(n, startAt = 0) {
+function pumpFrames(n) {
   for (let i = 0; i < n; i++) {
     if (typeof pendingFrame !== 'function') throw new Error('主循环未注册 requestAnimationFrame');
     const cb = pendingFrame;
     pendingFrame = null;
-    cb(startAt + i * (1000 / 60));
+    frameTime += 1000 / 60;
+    cb(frameTime);
+    assert.equal(typeof pendingFrame, 'function', '本帧结束后必须继续注册 requestAnimationFrame');
   }
 }
 
@@ -154,7 +161,7 @@ if (!debug) errors.push(new Error('app.js 未暴露 __emberfall 调试入口，�
 const $game = document.getElementById('game');
 
 // 主菜单阶段：先跑几帧，确认未开局时不崩
-try { pumpFrames(5, 1000); } catch (e) { errors.push(new Error(`主菜单帧循环失败: ${e.message}`)); }
+try { pumpFrames(5); } catch (e) { errors.push(new Error(`主菜单帧循环失败: ${e.message}`)); }
 
 // 开始经典模式：点开始按钮，然后跑 3 秒（约 180 帧）
 try {
@@ -163,7 +170,7 @@ try {
   if (!debug.state.started) errors.push(new Error('点击开始后 started 仍为 false'));
   if (game.mode !== 'classic') errors.push(new Error(`默认模式应为 classic，实际 ${game.mode}`));
   const before = game.time;
-  pumpFrames(180, 3000);
+  pumpFrames(180);
   if (!(game.time > before)) errors.push(new Error(`经典模式主循环未推进模拟时间 (${before} -> ${game.time})`));
   // HUD 必须真的写到 DOM 上
   const clock = document.getElementById('clock').textContent;
@@ -178,19 +185,19 @@ try {
   document.getElementById('pause-button').dispatch('click');
   if (!game.paused) errors.push(new Error('暂停按钮未生效'));
   const t = game.time;
-  pumpFrames(60, 6000);
+  pumpFrames(60);
   if (game.time !== t) errors.push(new Error('暂停后模拟时间仍在推进'));
   document.getElementById('pause-button').dispatch('click');
   if (game.paused) errors.push(new Error('继续按钮未生效'));
 } catch (e) { errors.push(new Error(`暂停流程失败: ${e.message}`)); }
 
-// 键盘移动 + 技能键
+// 键盘移动
 try {
   const game = debug.state.game;
   const player = game.actors[0];
   const x0 = player.x;
   window.dispatch('keydown', { key: 'd' });
-  pumpFrames(30, 8000);
+  pumpFrames(30);
   window.dispatch('keyup', { key: 'd' });
   if (!(player.x > x0)) errors.push(new Error(`按 D 后未向右移动 (${x0} -> ${player.x})`));
 } catch (e) { errors.push(new Error(`键盘输入失败: ${e.message}`)); }
@@ -199,7 +206,7 @@ try {
 try {
   document.getElementById('menu-pause').dispatch('click');
   if (debug.state.started) errors.push(new Error('返回菜单后 started 仍为 true'));
-  pumpFrames(3, 9000);
+  pumpFrames(3);
 } catch (e) { errors.push(new Error(`返回菜单失败: ${e.message}`)); }
 
 // 通过模式卡切到近战（模拟真实点击路径）
@@ -215,14 +222,158 @@ try {
   // 按住左键挥刀：模拟 pointerdown + 多帧
   const before = game.time;
   document.getElementById('game').dispatch('pointerdown', { button: 0, pointerId: 1, clientX: 400, clientY: 300 });
-  pumpFrames(90, 10000);
-  document.getElementById('game').dispatch('pointerup', { button: 0 });
+  pumpFrames(90);
+  window.dispatch('pointerup', { button: 0 });
   if (!(game.time > before)) errors.push(new Error('近战主循环未推进时间'));
   if (!(player.meleeActionSequence > 0)) errors.push(new Error('按住左键未产生任何挥刀动作'));
   // 刀光用 crescent() 的 lineTo 多边形绘制，不是 canvas arc()；
   // 这里只确认近战期间确实发生了绘制（fillRect 增长），并记录 lineTo 次数。
   if (!(calls.fillRect > 0)) errors.push(new Error('近战模式未发生任何绘制'));
 } catch (e) { errors.push(new Error(`近战驱动失败: ${e.message}`)); }
+
+// 回归：死亡和结算必须经过真实 HUD/帧循环，而非仅调用 Renderer。
+const frameDriver = pendingFrame;
+function scenario(name, test) {
+  // 前一场景若使 rAF 崩溃，仅在场景边界复位测试夹具，让其他分支也能独立报告。
+  if (pendingFrame === null) pendingFrame = frameDriver;
+  try {
+    test();
+    console.log(`  ok ${name}`);
+  } catch (error) {
+    errors.push(new Error(`${name}: ${error.message}`, { cause: error }));
+  }
+}
+
+const click = (id) => document.getElementById(id).dispatch('click');
+const hidden = (id) => document.getElementById(id).classList.contains('hidden');
+
+function startMode(mode) {
+  click('menu-pause');
+  makeModeCard(mode).dispatch('click');
+  click('start-button');
+  assert.equal(debug.state.game.mode, mode);
+  assert.equal(debug.state.started, true);
+  return debug.state.game;
+}
+
+function holdInput(game) {
+  window.dispatch('keydown', { key: 'd' });
+  window.dispatch('keydown', { key: 'q' });
+  $game.dispatch('pointerdown', { button: 0, pointerId: 7, clientX: 500, clientY: 300 });
+  assert.equal(debug.state.keys.has('d'), true);
+  assert.equal(debug.state.castSlot, 0);
+  if (game.mode === 'melee') assert.equal($game.hasPointerCapture(7), true);
+}
+
+function assertInputCleared(game) {
+  assert.equal(debug.state.keys.size, 0, '方向键状态必须清空');
+  assert.equal(debug.state.castSlot, -1, '待释放技能必须清空');
+  assert.equal(game.actors[0].attackHeld, false, '角色持续攻击状态必须清空');
+  assert.equal(game.actors[0].attackPressed, false, '角色攻击边沿必须清空');
+  assert.equal($game._captures.size, 0, '持续攻击必须释放指针捕获');
+}
+
+function assertFreshGame(mode, button) {
+  const oldGame = debug.state.game;
+  click(button);
+  const game = debug.state.game;
+  assert.notEqual(game, oldGame, '重开必须创建新对局');
+  assert.equal(game.mode, mode, '重开必须保留当前模式');
+  assert.equal(debug.state.started, true);
+  assert.equal(game.paused, false);
+  assert.equal(game.result, null);
+  assert.equal(game.time, 0);
+  assert.equal(debug.state.spectateId, null);
+  assert.equal(debug.state.deathDismissed, false);
+  assert.equal(document.getElementById('game-shell').classList.contains('spectating'), false);
+  for (const id of ['start-overlay', 'death-card', 'result-overlay', 'pause-overlay']) {
+    assert.equal(hidden(id), true, `重开后必须隐藏 ${id}`);
+  }
+  const x = game.actors[0].x;
+  const y = game.actors[0].y;
+  pumpFrames(8);
+  assert.ok(game.time > 0 && game.time < 0.2, '新局必须从零正常推进');
+  assert.equal(game.actors[0].x, x, '重开不能继承移动键');
+  assert.equal(game.actors[0].y, y, '重开不能继承移动键');
+  if (mode === 'melee') assert.equal(game.actors[0].meleeActionSequence || 0, 0, '重开不能继承按住挥刀');
+  return game;
+}
+
+function assertMenuRecovery(mode) {
+  click('pause-button');
+  assert.equal(debug.state.game.paused, true);
+  click('menu-pause');
+  assert.equal(debug.state.started, false);
+  assert.equal(hidden('start-overlay'), false);
+  const menuGame = debug.state.game;
+  pumpFrames(8);
+  assert.equal(menuGame.time, 0, '主菜单不能推进对局');
+  assertFreshGame(mode, 'start-button');
+}
+
+for (const mode of ['classic', 'melee']) {
+  scenario(`${mode}: 死亡清空输入、观战继续、重开与返回菜单恢复`, () => {
+    let game = startMode(mode);
+    holdInput(game);
+    game.actors[0].alive = false;
+    game.actors[0].hp = 0;
+    pumpFrames(8);
+    assert.equal(game.result, null);
+    assertInputCleared(game);
+    assert.equal(hidden('death-card'), false);
+    assert.equal(hidden('result-overlay'), true);
+    assert.equal(document.getElementById('game-shell').classList.contains('spectating'), true);
+    // 在死亡卡仍可见时重开，再经历一次死亡测试观战分支。
+    game = assertFreshGame(mode, 'restart-death');
+    holdInput(game);
+    game.actors[0].alive = false;
+    game.actors[0].hp = 0;
+    pumpFrames(8);
+    assertInputCleared(game);
+    assert.equal(hidden('death-card'), false);
+    const living = game.actors.filter((actor) => actor.alive);
+    assert.equal(debug.state.spectateId, living[0].id, '死亡后自动跟随存活旅者');
+    click('spectate-button');
+    assert.equal(debug.state.deathDismissed, true);
+    const row = { dataset: { actor: living[1].id } };
+    document.getElementById('roster').dispatch('click', { target: { closest: () => row } });
+    const before = game.time;
+    pumpFrames(16);
+    assert.ok(game.time > before, '观战必须继续推进模拟');
+    assert.equal(debug.state.spectateId, living[1].id, '点击名册必须切换观战目标');
+    assert.equal(hidden('death-card'), true, '关闭死亡卡后不能再次弹出');
+    assertMenuRecovery(mode);
+  });
+
+  for (const outcome of ['win', 'loss', 'draw']) {
+    scenario(`${mode}: ${outcome} 结算清空输入、显示浮层且能够重开`, () => {
+      const game = startMode(mode);
+      holdInput(game);
+      // 保留一人由真实 stepGame 判胜；平局用时限风暴在同一步杀死最后两人。
+      for (let i = 0; i < game.actors.length; i++) {
+        const alive = outcome === 'win' ? i === 0 : outcome === 'loss' ? i === 1 : i < 2;
+        game.actors[i].alive = alive;
+        game.actors[i].hp = alive ? game.actors[i].maxHp : 0;
+      }
+      if (outcome === 'draw') game.time = CONFIG.matchLimit - 1 / 120;
+      assert.equal(game.result, null);
+      pumpFrames(8);
+      assert.equal(game.result?.winnerId, outcome === 'win' ? game.actors[0].id : outcome === 'loss' ? game.actors[1].id : null);
+      assert.equal(game.actors[0].alive, outcome === 'win');
+      assertInputCleared(game);
+      assert.equal(hidden('result-overlay'), false);
+      assert.equal(hidden('death-card'), true);
+      assert.equal(hidden('choices'), true);
+      const title = document.getElementById('result-title').textContent;
+      assert.equal(title, outcome === 'win' ? '你是最后的微光' : outcome === 'loss' ? `${game.actors[1].name} 赢得试炼` : '余烬之下，无人生还');
+      const time = game.time;
+      pumpFrames(16);
+      assert.equal(game.time, time, '结算后模拟停止但帧循环继续');
+      assertFreshGame(mode, 'restart-result');
+      assertMenuRecovery(mode);
+    });
+  }
+}
 
 // 渲染器单独跑两种模式 + 第三个注册模式
 for (const mode of ['classic', 'melee']) {

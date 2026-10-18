@@ -38,7 +38,7 @@ drawHero(portraitCtx, 24, 25, '#f2be65', 0, false, 1.45);
 const actions = {};
 const input = createInput(state, actions);
 const flow = createFlow(state, input, state.renderer, portraitCtx);
-Object.assign(actions, flow);
+Object.assign(actions, flow, { clearInput: input.clearInput });
 const hud = createHud(state, actions);
 
 // ---- 主循环 -------------------------------------------------------------

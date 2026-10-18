@@ -1,10 +1,19 @@
 # 首版验证记录
 
+## 重构回归修复（2026-10-18）
+
+- 修复入口装配漏接 `input.clearInput`：HUD 的死亡与结算分支现在能清空输入并显示浮层，帧循环继续，观战、重开与返回菜单再开始正常。
+- 修复模式输入集合在导入时固定的问题：输入适配读取当前模式的 `usesPointerAttack`，模块加载后注册的近战模式能收到玩家和AI的瞄准、点击及按住普攻。
+- 先加入会在旧代码失败的测试，再修复。模式回归先有3项失败，修复后该文件12/12通过；入口回归先在双模式死亡/存活获胜4个分支报出缺失函数，修复后扩展至8个场景全部通过。
+- DOM 测试新增双模式死亡、自动观战与切视角、胜利/失败/时限同一步平局、键盘与指针捕获清理、结算后持续刷新、同模式重开、返回菜单后再开始；所有场景通过真实入口和主循环，使用单调测试时钟并逐帧检查后续回调。
+- 浏览器通过临时本地场景触发真实伤害与结算：经典死亡后弹卡、继续观战、暂停与返回菜单；切近战后获胜、结算重开、新局继续推进以及全灭平局均正常，控制台未见脚本错误。测试场景用于快速进入边界状态，未将短局测试冒充自然完整对局；临时页面已删除，不随站点发布。
+- 最终 `npm run verify` 全部通过：83项单元测试、双模式各3局60Hz模拟、DOM回归、双模式对砍与性能检查；8局4071个逐秒状态哈希与原基线完全一致，未修改基线。`git diff --check` 通过。
+
 ## 架构重构（2026-10-17，分支 refactor/architecture）
 
-基线标签 `v1.0.0-baseline` 指向 `2cf4a34`（重构前）。全部重构在该分支完成，`main` 始终停在基线。
+基线标签 `v1.0.0-baseline` 指向 `2cf4a34`（重构前）。重构已包含在当前 `main` 中。
 
-验收方式是**逐秒状态哈希逐字节比对**：`.local/state-snapshot.mjs` 对 classic/melee × 4 个种子各跑完整一局，每秒对整局可序列化状态做 SHA-256（排除 `meleeVisuals`/`hitFlash`/`effects` 三个纯视觉字段），共 8 局 4071 个哈希。任一阶段改动后必须与 `.local/baseline-output/state-baseline.json` 完全一致。
+验收方式是**逐秒状态哈希逐字节比对**：`tests/state-snapshot.mjs` 对 classic/melee × 4 个种子各跑完整一局，每秒对整局可序列化状态做 SHA-256（排除 `meleeVisuals`/`hitFlash`/`effects` 三个纯视觉字段），共 8 局 4071 个哈希。任一阶段改动后必须与版本管理内的 `tests/baselines/state-baseline.json` 完全一致。
 
 | 阶段 | 内容 | 改动点 | 测试 | 哈希 |
 | --- | --- | --- | --- | --- |
@@ -18,7 +27,7 @@
 
 性能没有退化，也不需要优化：模拟平均 0.45ms/tick、p95 0.79ms（占 60Hz 预算 4.7%）、约 37 倍实时；62 怪 + 400 子弹时 1.24ms/tick。
 
-新增的 `tests/determinism.test.js`、`tests/monsters.test.js`、`tests/skills.test.js`、`tests/modes.test.js` 把「改一处即生效」从口头约定钉成断言。`.local/dom-smoke.mjs` 用最小 DOM/Canvas mock 真实驱动 `app.js`：点击开始、跑 180 帧、验证暂停冻结时间、键盘移动、返回菜单、切近战模式、按住左键产生挥刀动作；该测试已接入 `npm run verify`，覆盖原先只看模拟、测不到前端的空白。
+新增的 `tests/determinism.test.js`、`tests/monsters.test.js`、`tests/skills.test.js`、`tests/modes.test.js` 把「改一处即生效」从口头约定钉成断言。`tests/dom-smoke.mjs` 用最小 DOM/Canvas mock 真实驱动 `app.js`：点击开始、跑 180 帧、验证暂停冻结时间、键盘移动、返回菜单、切近战模式、按住左键产生挥刀动作；该测试已接入 `npm run verify`。10月18日进一步补齐死亡与结算后的前端路径。
 
 
 2026-10-15，Windows / Node.js，浏览器 Canvas 2D。
