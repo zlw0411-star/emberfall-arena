@@ -24,7 +24,7 @@ function prepareBuild(mode, level) {
   if (level > 1) {
     let xp = 0;
     for (let current = 1; current < level; current++) xp += xpNeeded(current);
-    addXp(game, actor, xp);
+    addXp(game, actor, xp / BOSS_CONFIG.xpMultiplier);
   }
   const activeBuild = mode === 'classic' ? ['fireball', 'quake', 'chainLightning'] : ['lunge', 'whirlwind', 'heavySlash'];
   const desired = level === 1 ? [] : level === 8 ? [...activeBuild, 'power'] : [...activeBuild, ...Array(5).fill('power')];

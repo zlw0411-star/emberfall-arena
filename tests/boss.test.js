@@ -338,7 +338,35 @@ test('boss mode continues after all actors die and max level never stops supply 
   assert.equal(game.zone, null);
 });
 
-test('participation grants exactly four XP only for living contributors once per ten-second window', () => {
+test('boss XP scales map gems and both monster award portions once for players and bots', () => {
+  for (const mode of modes) for (const isPlayer of [true, false]) {
+    const game = bossGame(`boss-xp-sources-${mode}-${isPlayer}`, mode);
+    const actor = isPlayer ? player(game) : game.actors.find(a => !a.isPlayer && a.combatMode === mode);
+    const template = game.monsters[0];
+    quiet(game);
+    game.actors = [actor]; actor.isPlayer = isPlayer;
+    game.gems = [{ id: 'map-xp', x: actor.x, y: actor.y, kind: 'xp', value: 5 }];
+    updateCombat(game, DT);
+    assert.equal(actor.xp, 7.5);
+    assert.ok(game.effects.some(effect => effect.text === '+7.5 XP'));
+    for (const xp of [15, 25]) {
+      actor.xp = 0;
+      const monster = { ...template, id: `xp-${xp}`, x: actor.x, y: actor.y, hp: 1, alive: true, xp };
+      game.monsters = [monster];
+      damage(game, monster, 100, actor);
+      assert.ok(Math.abs(actor.xp - xp * 0.35 * 1.5) < 1e-9);
+      const gem = game.gems.find(g => g.kind === 'xp');
+      assert.ok(gem, 'monster must drop its remaining XP');
+      gem.x = actor.x; gem.y = actor.y;
+      updateCombat(game, DT);
+      assert.ok(Math.abs(actor.xp - xp * 1.5) < 1e-9, 'split rewards must not multiply twice or round fractions away');
+      damage(game, monster, 100, actor);
+      assert.ok(Math.abs(actor.xp - xp * 1.5) < 1e-9, 'dead monsters must not pay again');
+    }
+  }
+});
+
+test('participation grants exactly six XP only for living contributors once per ten-second window', () => {
   const game = bossGame('boss-xp-window');
   quiet(game);
   game.phase = 'boss'; game.time = 99.99; game.boss = createBoss(game);
@@ -347,18 +375,18 @@ test('participation grants exactly four XP only for living contributors once per
   damage(game, game.boss, 1, actor, { attackKind: 'active' });
   dead.alive = false; dead.hp = 0; dead.respawnAt = 200; dead.bossParticipated = true;
   stepGame(game, DT);
-  assert.equal(actor.xp, 4);
+  assert.equal(actor.xp, 6);
   assert.equal(inactive.xp, 0);
   assert.equal(dead.xp, 0);
   assert.equal(actor.bossParticipated, false);
   assert.equal(game.nextParticipationAt, 110);
   game.time = 109.99;
   stepGame(game, DT);
-  assert.equal(actor.xp, 4, 'old damage cannot earn repeated participation XP');
+  assert.equal(actor.xp, 6, 'old damage cannot earn repeated participation XP');
   game.time = 119.99;
   damage(game, game.boss, 1, actor, { attackKind: 'active' });
   stepGame(game, DT);
-  assert.equal(actor.xp, 8, 'a new damage window should earn four more XP');
+  assert.equal(actor.xp, 12, 'a new damage window should earn six more XP');
 });
 
 test('a contributor revived before the same participation boundary still earns XP', () => {
@@ -377,7 +405,7 @@ test('a contributor revived before the same participation boundary still earns X
   assert.equal(actor.xp, 0);
   assert.equal(actor.bossParticipated, true);
   while (game.time < 100) stepGame(game, DT);
-  assert.equal(actor.xp, 4);
+  assert.equal(actor.xp, 6);
   assert.equal(actor.bossParticipated, false);
 });
 
@@ -388,7 +416,7 @@ test('weapon progression can be legally prepared for both modes at all milestone
     if (level > 1) {
       let xp = 0;
       for (let current = 1; current < level; current++) xp += xpNeeded(current);
-      addXp(game, actor, xp);
+      addXp(game, actor, xp / BOSS_CONFIG.xpMultiplier);
     }
     assert.equal(actor.level, level);
     assert.equal(actor.combatMode, mode);

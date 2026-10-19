@@ -9,6 +9,7 @@ export const BOSS_CONFIG = Object.freeze({
   nearGuardRadius: 160,
   nearGuardReduction: 0.2,
   xpInterval: 10,
+  xpMultiplier: 1.5,
   participationXp: 4,
   basicDamageMultipliers: Object.freeze({ classic: 2, melee: 1 }),
   skillDamageMultipliers: Object.freeze({ classic: 0.95, melee: 1 }),

@@ -144,9 +144,11 @@ export function xpNeeded(level) {
   return Math.round((65 + (lv - 1) * 12) * COMBAT_BALANCE.xpThresholdMultiplier);
 }
 
+const xpAmount = (game, amount) => amount * (isBossGame(game) ? BOSS_CONFIG.xpMultiplier : 1);
+
 export function addXp(game, actor, amount) {
   if (!alive(actor) || actor.level >= MAX_LEVEL || !(amount > 0)) return 0;
-  actor.xp = (actor.xp || 0) + amount;
+  actor.xp = (actor.xp || 0) + xpAmount(game, amount);
   let gained = 0;
   while (actor.level < MAX_LEVEL && actor.xp >= xpNeeded(actor.level)) {
     actor.xp -= xpNeeded(actor.level);
@@ -595,7 +597,7 @@ function tickGems(game, dt) {
         }
       } else {
         addXp(game, actor, gem.value || 5);
-        pushEffect(game, { x: actor.x, y: actor.y - 16, kind: 'text', text: `+${Math.round(gem.value || 5)} XP`, color: '#8be9ff', ttl: 0.55 });
+        pushEffect(game, { x: actor.x, y: actor.y - 16, kind: 'text', text: `+${isBossGame(game) ? Number(xpAmount(game, gem.value || 5).toFixed(2)) : Math.round(gem.value || 5)} XP`, color: '#8be9ff', ttl: 0.55 });
       }
       gem.collected = true;
       break;
