@@ -1,0 +1,246 @@
+{
+  "date": "2026-10-19",
+  "purpose": "Historical summaries of local tuning experiments; partial runs are not full-matrix validation. Only the final experiment represents released gameplay. Missing configuration fields are not reconstructed from memory.",
+  "finalFullReport": "boss-simulation-20261019.json",
+  "records": [
+    {
+      "sourceLocalFile": ".local/boss-sim-tuning-old-dodge.json",
+      "status": "complete",
+      "sampleCount": 24,
+      "configuration": {
+        "hz": 60,
+        "bossHp": 180000,
+        "basicDamageMultipliers": {
+          "classic": 2.4,
+          "melee": 1
+        },
+        "skillDamageMultipliers": {
+          "classic": 1,
+          "melee": 1
+        }
+      },
+      "aggregate": {
+        "classic": {
+          "runs": 24,
+          "totalDamage": 2046043.22,
+          "averageDamagePerRun": 85251.8,
+          "winnerCount": 24,
+          "deaths": 19
+        },
+        "melee": {
+          "runs": 24,
+          "totalDamage": 1693663.86,
+          "averageDamagePerRun": 70569.33,
+          "winnerCount": 0,
+          "deaths": 296
+        }
+      },
+      "resultCounts": {
+        "bossDefeated": 0,
+        "timeLimit": 24
+      },
+      "published": false
+    },
+    {
+      "sourceLocalFile": ".local/boss-sim-tuning-pre-lunge.json",
+      "status": "complete",
+      "sampleCount": 24,
+      "configuration": {
+        "hz": 60,
+        "bossHp": 180000,
+        "basicDamageMultipliers": {
+          "classic": 2.4,
+          "melee": 1
+        },
+        "skillDamageMultipliers": {
+          "classic": 1,
+          "melee": 1
+        }
+      },
+      "aggregate": {
+        "classic": {
+          "runs": 24,
+          "totalDamage": 2090861.4,
+          "averageDamagePerRun": 87119.23,
+          "winnerCount": 20,
+          "deaths": 11
+        },
+        "melee": {
+          "runs": 24,
+          "totalDamage": 2046560.07,
+          "averageDamagePerRun": 85273.34,
+          "winnerCount": 4,
+          "deaths": 125
+        }
+      },
+      "resultCounts": {
+        "bossDefeated": 4,
+        "timeLimit": 20
+      },
+      "published": false
+    },
+    {
+      "sourceLocalFile": ".local/tuning-2p2-no-melee-compensation.json",
+      "status": "complete",
+      "sampleCount": 24,
+      "configuration": {
+        "hz": 60,
+        "bossHp": 180000,
+        "basicDamageMultipliers": {
+          "classic": 2.2,
+          "melee": 1
+        },
+        "skillDamageMultipliers": {
+          "classic": 1,
+          "melee": 1
+        }
+      },
+      "aggregate": {
+        "classic": {
+          "runs": 24,
+          "totalDamage": 1955520.43,
+          "averageDamagePerRun": 81480.02,
+          "winnerCount": 21,
+          "deaths": 13
+        },
+        "melee": {
+          "runs": 24,
+          "totalDamage": 2038838.16,
+          "averageDamagePerRun": 84951.59,
+          "winnerCount": 3,
+          "deaths": 110
+        }
+      },
+      "resultCounts": {
+        "bossDefeated": 1,
+        "timeLimit": 23
+      },
+      "published": false
+    },
+    {
+      "sourceLocalFile": ".local/tuning-melee115.json",
+      "status": "complete",
+      "sampleCount": 24,
+      "configuration": {
+        "hz": 60,
+        "bossHp": 180000,
+        "basicDamageMultipliers": {
+          "classic": 2.2,
+          "melee": 1.15
+        },
+        "skillDamageMultipliers": {
+          "classic": 1,
+          "melee": 1.15
+        }
+      },
+      "aggregate": {
+        "classic": {
+          "runs": 24,
+          "totalDamage": 1933156.07,
+          "averageDamagePerRun": 80548.17,
+          "winnerCount": 6,
+          "deaths": 12
+        },
+        "melee": {
+          "runs": 24,
+          "totalDamage": 2320745.19,
+          "averageDamagePerRun": 96697.72,
+          "winnerCount": 18,
+          "deaths": 130
+        }
+      },
+      "resultCounts": {
+        "bossDefeated": 11,
+        "timeLimit": 13
+      },
+      "published": false
+    },
+    {
+      "sourceLocalFile": ".local/tuning-melee108-partial.json",
+      "status": "interrupted after user steering",
+      "sampleCount": 5,
+      "configuration": null,
+      "aggregate": {
+        "classic": {
+          "winnerCount": 4,
+          "deaths": 3,
+          "totalDamage": 404746.35
+        },
+        "melee": {
+          "winnerCount": 1,
+          "deaths": 26,
+          "totalDamage": 442781.89999999997
+        }
+      },
+      "resultCounts": null,
+      "published": false
+    },
+    {
+      "sourceLocalFile": ".local/tuning-guard-22-partial.json",
+      "status": "interrupted on parent instruction",
+      "sampleCount": 18,
+      "configuration": {
+        "classicBasic": 2.2,
+        "classicSkill": 1,
+        "meleeBasic": 1,
+        "meleeSkill": 1,
+        "nearGuardRadius": 160,
+        "nearGuardReduction": 0.2
+      },
+      "aggregate": {
+        "classic": {
+          "winnerCount": 16,
+          "deaths": 12,
+          "totalDamage": 1454192.8499999999
+        },
+        "melee": {
+          "winnerCount": 2,
+          "deaths": 87,
+          "totalDamage": 1532453.5299999998
+        }
+      },
+      "resultCounts": null,
+      "published": false
+    },
+    {
+      "sourceLocalFile": ".local/boss-sim-final.json",
+      "status": "complete",
+      "sampleCount": 24,
+      "configuration": {
+        "hz": 60,
+        "bossHp": 180000,
+        "basicDamageMultipliers": {
+          "classic": 2,
+          "melee": 1
+        },
+        "skillDamageMultipliers": {
+          "classic": 0.95,
+          "melee": 1
+        },
+        "nearGuardRadius": 160,
+        "nearGuardReduction": 0.2
+      },
+      "aggregate": {
+        "classic": {
+          "runs": 24,
+          "totalDamage": 1818513.01,
+          "averageDamagePerRun": 75771.38,
+          "winnerCount": 13,
+          "deaths": 14
+        },
+        "melee": {
+          "runs": 24,
+          "totalDamage": 2053348.16,
+          "averageDamagePerRun": 85556.17,
+          "winnerCount": 11,
+          "deaths": 115
+        }
+      },
+      "resultCounts": {
+        "bossDefeated": 0,
+        "timeLimit": 24
+      },
+      "published": true
+    }
+  ]
+}
