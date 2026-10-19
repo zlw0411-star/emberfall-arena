@@ -110,11 +110,15 @@ export function moveEntity(map, entity, dx, dy) {
   const steps = Math.max(1, Math.ceil(distance / Math.max(2, radius * 0.45)));
   const sx = dx / steps;
   const sy = dy / steps;
+  // Dynamic bodies block movement, not weapon line-of-sight or projectiles.
+  const canMove = (x, y) => !blocked(map, x, y, radius)
+    && !(map.movementCircles || []).some(body => body !== entity && body.alive
+      && Math.hypot(x - body.x, y - body.y) < radius + body.radius);
   for (let i = 0; i < steps; i++) {
     const nx = entity.x + sx;
     const ny = entity.y + sy;
-    if (!blocked(map, nx, entity.y, radius)) entity.x = nx;
-    if (!blocked(map, entity.x, ny, radius)) entity.y = ny;
+    if (canMove(nx, entity.y)) entity.x = nx;
+    if (canMove(entity.x, ny)) entity.y = ny;
   }
   return entity;
 }

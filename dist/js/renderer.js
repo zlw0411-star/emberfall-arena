@@ -1,6 +1,7 @@
 import {rngFromSeed} from './world.js';
 import {drawMeleeVisuals,drawMeleeImpact} from './melee-vfx.js';
 import {drawSkillEffect,drawBladeWard} from './skill-vfx.js';
+import {drawBossTelegraph,drawBossBody,drawBossGuard} from './boss-renderer.js';
 import {weaponTypeOf} from './modes.js';
 import {terrainBiome,bakeBiome,drawBiomeObstacle,drawBiomeSpike,drawBiomeAmbient} from './terrain.js';
 
@@ -59,16 +60,16 @@ export class Renderer{
   for(let i=0;i<85;i++){const x=rng()*map.width,y=rng()*map.height;if(Math.abs(x-1024)>170&&Math.abs(y-1024)>170)this.decor.push({x,y,size:16+rng()*18});}
  }
  draw(game,{started=false,spectateId=null,alpha=1}={}){
-  this.resize();if(!this.terrain||this.seed!==game.map.seed||this.biome!==terrainBiome(game.map))this.bake(game.map);const c=this.ctx,w=this.canvas.width,h=this.canvas.height,z=this.zoom;
+  this.resize();if(game.ruleset==='boss')this.zoom=this.canvas.width<650?1:1.25;if(!this.terrain||this.seed!==game.map.seed||this.biome!==terrainBiome(game.map))this.bake(game.map);const c=this.ctx,w=this.canvas.width,h=this.canvas.height,z=this.zoom;
   const lerp=e=>e.prevX===undefined?e:{...e,x:e.prevX+(e.x-e.prevX)*alpha,y:e.prevY+(e.y-e.prevY)*alpha};
   const target=started?lerp(game.actors.find(a=>a.id===spectateId&&a.alive)||game.actors.find(a=>a.isPlayer&&a.alive)||game.actors.find(a=>a.alive)||{x:1024,y:1024}):{x:1024,y:1024};
   if(target){const halfw=w/2/z,halfh=h/2/z;this.camera.x=Math.max(halfw,Math.min(game.map.width-halfw,target.x));this.camera.y=Math.max(halfh,Math.min(game.map.height-halfh,target.y));}
   c.clearRect(0,0,w,h);c.save();c.scale(z,z);c.translate(w/2/z-this.camera.x,h/2/z-this.camera.y);const left=this.camera.x-w/2/z,top=this.camera.y-h/2/z;const visible=(x,y,r=80)=>x>left-r&&x<left+w/z+r&&y>top-r&&y<top+h/z+r;
-  c.drawImage(this.terrain,0,0);
+  c.drawImage(this.terrain,0,0);drawBossGuard(c,game.boss);drawBossTelegraph(c,game.boss,game.time);
   for(const t of game.map.traps){if(t.type!=='spike'||!visible(t.x,t.y))continue;if(drawBiomeSpike(c,t,game.time,this.biome))continue;const phase=(game.time+t.offset)%4;if(phase<2.1)continue;const up=phase>=2.8;c.globalAlpha=up?.8:.3+Math.sin(game.time*18)*.15;rect(c,up?'#bf785a':'#c8a968',t.x-t.r,t.y-t.r,t.r*2,t.r*2);c.globalAlpha=1;for(let x=-t.r+4;x<t.r;x+=10)for(let y=-t.r+4;y<t.r;y+=10){const px=t.x+x,py=t.y+y;rect(c,up?'#bcb48b':'#8a8f6a',px,py,3,up?9:3);if(up)rect(c,'#e0d2a5',px+1,py-2,1,7);}}
   for(const g of game.gems){if(!visible(g.x,g.y,20))continue;const phase=Number.isFinite(Number(g.id))?Number(g.id):g.x*.37+g.y*.19;const yy=g.y+Math.sin(game.time*3+phase)*2;ellipse(c,'#b6dd9c0b',g.x,g.y,12,8);c.save();c.translate(Math.round(g.x),Math.round(yy));c.rotate(Math.PI/4);rect(c,g.kind==='heal'?'#e6a39b':'#aad7a0',-3,-3,6,6);rect(c,g.kind==='heal'?'#f5d1ba':'#e1edbc',-2,-3,2,2);c.restore();rect(c,'#78b67933',g.x-1,yy+7,2,2);}
-  const objects=[...game.map.obstacles.map(o=>({kind:'obstacle',o,y:o.y+o.h})),...game.monsters.filter(m=>m.alive).map(e=>{const o=lerp(e);return{kind:'monster',o,y:o.y};}),...game.actors.map(e=>{const o=lerp(e);return{kind:'actor',o,y:o.y};})].sort((a,b)=>a.y-b.y);
-  for(const {kind,o}of objects){if(!visible(o.x,o.y,kind==='obstacle'?Math.max(130,o.w+20,o.h+20):130))continue;if(kind==='obstacle')this.obstacle(c,o);else if(kind==='monster')this.monster(c,o,game.time);else this.actor(c,o,game.time,game.phase,(alpha-1)/60);}
+  const objects=[...(game.boss?[{kind:'boss',o:game.boss,y:game.boss.y}]:[]),...game.map.obstacles.map(o=>({kind:'obstacle',o,y:o.y+o.h})),...game.monsters.filter(m=>m.alive).map(e=>{const o=lerp(e);return{kind:'monster',o,y:o.y};}),...game.actors.map(e=>{const o=lerp(e);return{kind:'actor',o,y:o.y};})].sort((a,b)=>a.y-b.y);
+  for(const {kind,o}of objects){if(!visible(o.x,o.y,kind==='obstacle'?Math.max(130,o.w+20,o.h+20):130))continue;if(kind==='obstacle')this.obstacle(c,o);else if(kind==='monster')this.monster(c,o,game.time);else if(kind==='boss')drawBossBody(c,o,game.time,this.biome);else this.actor(c,o,game.time,game.phase,(alpha-1)/60);}
   for(const bullet of game.bullets){const b=lerp(bullet);if(!visible(b.x,b.y,20))continue;const color=b.color||'#efcd8e';ellipse(c,color+'22',b.x,b.y,b.kind==='fireball'?16:6,b.kind==='fireball'?16:6);rect(c,color,b.x-2,b.y-2,b.kind==='fireball'?7:4,b.kind==='fireball'?7:4);rect(c,'#fff0bc',b.x-1,b.y-1,2,2);}
   for(const e of game.effects){if(e.kind!=='chainLightning'&&!visible(e.x,e.y,Math.max(150,e.radius||0)))continue;const p=Math.min(1,e.ttl/(e.maxTtl||.7));c.globalAlpha=Math.min(1,p*2);if(drawSkillEffect(c,e)){}else if(e.kind==='meleeImpact'){drawMeleeImpact(c,e);}else if(e.kind==='text'){if(/^\-0$/.test(e.text||''))continue;c.font='bold 9px "Space Grotesk","Noto Sans SC",sans-serif';c.textAlign='center';c.fillStyle='#17251b';c.fillText(e.text,e.x+1,e.y-12*(1-p)+1);c.fillStyle=e.color||'#e1d59f';c.fillText(e.text,e.x,e.y-12*(1-p));}else{c.strokeStyle=e.color||'#e4c283';c.lineWidth=e.kind==='ring'?3:2;c.beginPath();c.arc(e.x,e.y,(e.radius||20)*(1-p*.65),0,Math.PI*2);c.stroke();for(let i=0;i<6;i++){const a=i*Math.PI/3,r=(e.radius||20)*(1-p);rect(c,e.color||'#e4c283',e.x+Math.cos(a)*r,e.y+Math.sin(a)*r,3,3);}}c.globalAlpha=1;}
   // Warm embers drift over the cold ruins.
@@ -93,6 +94,7 @@ export class Renderer{
  actor(c,a,t,phase,timeOffset=0){
   if(!a.alive){rect(c,'#54684b',a.x-6,a.y-2,12,4);rect(c,'#677652',a.x-2,a.y-8,4,16);return;}
   if(a.isPlayer){ellipse(c,'#e7c67a22',a.x,a.y+6,18,7);c.strokeStyle='#d3bd7a77';c.lineWidth=1;c.beginPath();c.ellipse(a.x,a.y+7,16,6,0,0,Math.PI*2);c.stroke();}
+  if(a.invulnerableUntil>t){c.save();c.strokeStyle='#bdeade';c.lineWidth=2;c.setLineDash([3,3]);c.beginPath();c.arc(a.x,a.y,22,0,Math.PI*2);c.stroke();c.restore();}
   drawBladeWard(c,a,t,{front:false});
   const poseDrawer=POSE_DRAWERS[a.weaponType];
   if(poseDrawer)poseDrawer(c,a,t,timeOffset,a.hitFlash>0);
@@ -101,6 +103,6 @@ export class Renderer{
   const y=a.y-28;c.font='7px "Space Grotesk","Noto Sans SC",sans-serif';c.textAlign='center';c.fillStyle='#111e16';c.fillText(`${a.name}  Lv.${a.level}`,a.x+1,y-6);c.fillStyle=a.isPlayer?'#f0d99e':'#c7d1b2';c.fillText(`${a.name}  Lv.${a.level}`,a.x,y-7);rect(c,'#1a281c',a.x-15,y-3,30,3);rect(c,a.isPlayer?'#c9bf7a':phase==='grace'?'#91af7a':'#ca9374',a.x-15,y-3,30*a.hp/a.maxHp,2);
   if(a.isPlayer){c.fillStyle='#e7c67a';c.beginPath();c.moveTo(a.x-3,y-18);c.lineTo(a.x+3,y-18);c.lineTo(a.x,y-14);c.fill();}
  }
- drawMap(game){const c=this.mctx,w=this.minimap.width,h=this.minimap.height,scale=Math.min(w/game.map.width,h/game.map.height),ox=(w-game.map.width*scale)/2,oy=0;rect(c,'#15231a',0,0,w,h);c.save();c.translate(ox,oy);c.scale(scale,scale);c.drawImage(this.terrain,0,0);if(this.biome!=='courtyard')for(const o of game.map.obstacles)drawBiomeObstacle(c,o,this.biome);for(const g of game.gems)rect(c,'#a6d09a',g.x-6,g.y-6,12,12);for(const a of game.actors)if(a.alive){ellipse(c,a.isPlayer?'#f6ce79':'#d6977a',a.x,a.y,a.isPlayer?30:21,a.isPlayer?30:21);}if(game.zone){c.strokeStyle='#ead194';c.lineWidth=13;c.beginPath();c.arc(game.zone.x,game.zone.y,game.zone.radius,0,Math.PI*2);c.stroke();rect(c,'#f5d892',game.zone.x-15,game.zone.y-15,30,30);}c.strokeStyle='#b8c6a666';c.lineWidth=9;c.strokeRect(this.camera.x-this.canvas.width/2/this.zoom,this.camera.y-this.canvas.height/2/this.zoom,this.canvas.width/this.zoom,this.canvas.height/this.zoom);c.restore();}
+ drawMap(game){const c=this.mctx,w=this.minimap.width,h=this.minimap.height,scale=Math.min(w/game.map.width,h/game.map.height),ox=(w-game.map.width*scale)/2,oy=0;rect(c,'#15231a',0,0,w,h);c.save();c.translate(ox,oy);c.scale(scale,scale);c.drawImage(this.terrain,0,0);drawBossTelegraph(c,game.boss,game.time);if(game.boss){rect(c,'#eeac74',game.boss.x-25,game.boss.y-25,50,50);}if(this.biome!=='courtyard')for(const o of game.map.obstacles)drawBiomeObstacle(c,o,this.biome);for(const g of game.gems)rect(c,'#a6d09a',g.x-6,g.y-6,12,12);for(const a of game.actors)if(a.alive){ellipse(c,a.isPlayer?'#f6ce79':'#d6977a',a.x,a.y,a.isPlayer?30:21,a.isPlayer?30:21);}if(game.zone){c.strokeStyle='#ead194';c.lineWidth=13;c.beginPath();c.arc(game.zone.x,game.zone.y,game.zone.radius,0,Math.PI*2);c.stroke();rect(c,'#f5d892',game.zone.x-15,game.zone.y-15,30,30);}c.strokeStyle='#b8c6a666';c.lineWidth=9;c.strokeRect(this.camera.x-this.canvas.width/2/this.zoom,this.camera.y-this.canvas.height/2/this.zoom,this.canvas.width/this.zoom,this.canvas.height/this.zoom);c.restore();}
  toWorld(x,y){return{x:this.camera.x+(x-this.canvas.width/2)/this.zoom,y:this.camera.y+(y-this.canvas.height/2)/this.zoom};}
 }

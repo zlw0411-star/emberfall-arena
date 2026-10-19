@@ -15,6 +15,8 @@ import {
 import { MODES, usesMeleeActions } from './modes.js';
 import { focusCooldown, skillCooldown } from './balance.js';
 import { $, show, timeText, beep, toast } from './dom.js';
+import { updateBossHud } from './boss-hud.js';
+import { BOSS_CONFIG } from './boss-config.js';
 
 const SKILL_KEYS = ['Q', 'E', 'R'];
 const PHASE_NAMES = { grace: '发育保护', hunt: '自由争夺', finale: '终局决战' };
@@ -46,7 +48,9 @@ export function createHud(state, actions) {
       : `XP ${Math.floor(player.xp)} / ${xpNeeded(level)}`;
     const attack = player.attackDamage * mode.damageDisplayMultiplier
       * (1 + (player.skills.power || 0) * COMBAT_BALANCE.powerDamagePerRank);
-    $('attack-stat').textContent = `${mode.damageLabel} ${attack.toFixed(1)}`;
+    const bossMultiplier = game.ruleset === 'boss' ? BOSS_CONFIG.basicDamageMultipliers[game.mode] : 1;
+    $('attack-stat').textContent = game.ruleset === 'boss' ? `对首领 ${(attack * bossMultiplier).toFixed(1)}` : `${mode.damageLabel} ${attack.toFixed(1)}`;
+    $('attack-stat').title = game.ruleset === 'boss' ? `对小怪普攻 ${attack.toFixed(1)}；对首领普攻倍率 ${bossMultiplier}；主动技能倍率 ${BOSS_CONFIG.skillDamageMultipliers[game.mode]}` : '';
   }
 
   // ---- 存活人数与阶段进度条 ---------------------------------------------
@@ -277,6 +281,16 @@ export function createHud(state, actions) {
     const skills = getSkills(game);
 
     renderVitals(game, player);
+    if (game.ruleset === 'boss') {
+      renderSkills(game, player, skills); renderChoices(game, player, skills); renderEventLog(game);
+      updateBossHud(state, actions);
+      state.lastLevel = player.level; state.lastHp = player.hp; state.lastKills = player.kills;
+      return;
+    }
+    show('boss-panel', false); show('boss-ranking-panel', false);
+    $('death-title').textContent = '你的旅途暂止于此';
+    $('death-description').textContent = '试炼仍在继续，见证最后的幸存者。';
+    $('timeline-hunt').textContent = '02 争夺'; $('timeline-finale').textContent = '03 决战';
     $('alive-count').textContent = String(count).padStart(2, '0');
     $('roster-count').textContent = `${count} IN THE RUINS`;
     $('total-count').textContent = String(game.actors.length).padStart(2, '0');

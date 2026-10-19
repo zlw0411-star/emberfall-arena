@@ -8,6 +8,7 @@
 import { MODES } from './modes.js';
 import { $ } from './dom.js';
 import { createAttackInput } from './controls.js';
+import { canAct } from './targeting.js';
 
 /** 需要阻止浏览器默认行为的键（方向键滚动、空格滚动、Esc、数字/技能键）。 */
 const PREVENT_DEFAULT = new Set([
@@ -77,7 +78,7 @@ export function createInput(state, actions) {
     $('game'),
     window,
     () => MODES[state.game.mode].usesPointerAttack
-      && state.started && !state.game.paused && !state.game.result && state.game.actors[0].alive,
+      && state.started && !state.game.paused && !state.game.result && canAct(state.game, state.game.actors[0]),
     (event) => {
       pointAt(event);
       $('game-shell').focus({ preventScroll: true });

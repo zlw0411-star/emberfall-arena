@@ -1,5 +1,7 @@
 import { blocked, lineClear } from './world.js';
 import { modeOf } from './modes.js';
+import { combatModeOf, isBossGame } from './targeting.js';
+import { thinkBoss } from './boss-ai.js';
 // 近战技能的触及范围必须与 combat.js 用同一份常量，否则 AI 会在
 // “以为打得到”而实际打不到的距离开技能。本模块不能 import combat.js（循环依赖），
 // 但 balance.js 是零依赖的数据层，可以安全共用。
@@ -312,8 +314,13 @@ function aimAndCast(game, actor, target, threats = [], retreatVector = null, ret
 }
 
 export function think(game, actor, dt = 1 / 30) {
+  if(isBossGame(game))return thinkBoss(game,actor,dt,thinkArena);
+  return thinkArena(game,actor,dt);
+}
+
+function thinkArena(game, actor, dt) {
   // 按模式的 aiKey 查决策器，不再硬编码 mode === 'melee'。
-  const thinker = THINKERS[modeOf(game?.mode).aiKey];
+  const thinker = THINKERS[modeOf(combatModeOf(game,actor)).aiKey];
   if (thinker) return thinker(game, actor, dt);
   return thinkRanged(game, actor, dt);
 }

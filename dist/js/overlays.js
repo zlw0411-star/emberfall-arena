@@ -16,6 +16,7 @@ const FLOW_OVERLAYS = ['start-overlay', 'pause-overlay', 'result-overlay', 'deat
 const MENU_OVERLAYS = ['pause-overlay', 'result-overlay', 'death-card', 'choices', 'zone-banner', 'world-toast', 'help-overlay'];
 
 export function createFlow(state, input, renderer, portraitCtx) {
+  const options = () => ({ mode: state.selectedMode, mapId: state.selectedMap, ruleset: state.selectedRuleset });
   function resetComparisons() {
     state.choiceKey = '';
     state.lastLevel = 1;
@@ -52,7 +53,7 @@ export function createFlow(state, input, renderer, portraitCtx) {
     if (state.started) return;
     state.selectedMap = mapId === 'random' ? 'random' : normalizeBiome(mapId);
     input.clearInput();
-    state.game = createGame(state.game.seed, { mode: state.selectedMode, mapId: state.selectedMap });
+    state.game = createGame(state.game.seed, options());
     state.choiceKey = '';
     syncMode();
     return state.game;
@@ -61,17 +62,28 @@ export function createFlow(state, input, renderer, portraitCtx) {
   function syncMode() {
     const mode = state.started ? state.game.mode : state.selectedMode;
     const info = MODES[mode];
-    document.body.classList.toggle('mode-melee', Boolean(info.bodyClass));
-    for (const id of ['mode-label', 'world-mode', 'result-mode']) $(id).textContent = info.name;
-    for (const card of document.querySelectorAll('[data-mode]')) {
-      const selected = card.dataset.mode === mode;
+    const boss = state.started ? state.game.ruleset === 'boss' : state.selectedRuleset === 'boss';
+    const label = boss ? `首领竞伤 · ${info.name}` : info.name;
+    document.body.classList.toggle('rules-boss', boss);
+    show('boss-weapon-picker', boss);
+    $('round-duration').textContent = boss ? '90 秒发育 · 最长 10 分钟' : '单局约 5–10 分钟 · 最长 12 分钟';
+    $('party-description').textContent = boss ? '12 位竞伤者 · 6 近战 / 6 远程' : '1 位旅者 · 11 位对手';
+    for (const card of document.querySelectorAll('[data-weapon]')) {
+      const selected = card.dataset.weapon === mode;
       card.classList.toggle('selected', selected);
       card.setAttribute('aria-pressed', String(selected));
     }
-    $('mode-description').textContent = info.description;
-    $('start-button').innerHTML = `开始${info.name} <span>↗</span>`;
+    document.body.classList.toggle('mode-melee', Boolean(info.bodyClass));
+    for (const id of ['mode-label', 'world-mode', 'result-mode']) $(id).textContent = label;
+    for (const card of document.querySelectorAll('[data-mode]')) {
+      const selected = boss ? card.dataset.mode === 'boss' : card.dataset.mode === mode;
+      card.classList.toggle('selected', selected);
+      card.setAttribute('aria-pressed', String(selected));
+    }
+    $('mode-description').textContent = boss ? '随机成长，挑战余烬巨像。累计首领伤害最高者获胜，旅者全程互不伤害。' : info.description;
+    $('start-button').innerHTML = `开始${boss ? '首领竞伤' : info.name} <span>↗</span>`;
     $('attack-control').innerHTML = info.attackControlHtml;
-    $('choices').dataset.title = `${info.name} · 选择你的力量`;
+    $('choices').dataset.title = `${label} · 选择你的力量`;
     portraitCtx.clearRect(0, 0, 48, 48);
     drawHero(portraitCtx, 24, 25, '#f2be65', 0, false, 1.45, false,
       info.portraitPose ? { ...info.portraitPose } : null);
@@ -80,9 +92,10 @@ export function createFlow(state, input, renderer, portraitCtx) {
 
   function selectMode(mode) {
     if (state.started) return;
-    state.selectedMode = normalizeMode(mode);
+    state.selectedRuleset = mode === 'boss' ? 'boss' : 'arena';
+    if (mode !== 'boss') state.selectedMode = normalizeMode(mode);
     input.clearInput();
-    state.game = createGame(state.game.seed, { mode: state.selectedMode, mapId: state.selectedMap });
+    state.game = createGame(state.game.seed, options());
     state.choiceKey = '';
     syncMode();
     return state.game;
@@ -92,7 +105,7 @@ export function createFlow(state, input, renderer, portraitCtx) {
 
   function begin() {
     input.clearInput();
-    state.game = createGame(Date.now(), { mode: state.selectedMode, mapId: state.selectedMap });
+    state.game = createGame(Date.now(), options());
     state.started = true;
     state.deathDismissed = false;
     state.spectateId = null;
@@ -109,17 +122,18 @@ export function createFlow(state, input, renderer, portraitCtx) {
     $('game-shell').focus({ preventScroll: true });
     syncMode();
     beep(state, 330, 0.2);
-    toast(`${MODES[state.game.mode].name} · 90 秒发育保护`);
+    toast(state.game.ruleset === 'boss' ? '首领竞伤 · 90 秒发育，10 分钟竞伤' : `${MODES[state.game.mode].name} · 90 秒发育保护`);
   }
 
   function returnMenu() {
     state.selectedMode = state.game.mode;
+    state.selectedRuleset = state.game.ruleset || 'arena';
     input.clearInput();
     state.started = false;
     state.deathDismissed = false;
     state.spectateId = null;
     state.choiceKey = '';
-    state.game = createGame(Date.now(), { mode: state.selectedMode, mapId: state.selectedMap });
+    state.game = createGame(Date.now(), options());
     state.accumulator = 0;
     clearTimeout(toast.timer);
     for (const id of MENU_OVERLAYS) show(id, false);
@@ -202,6 +216,15 @@ export function createFlow(state, input, renderer, portraitCtx) {
     for (const id of ['restart-pause', 'restart-death', 'restart-result']) $(id).onclick = begin;
     for (const card of document.querySelectorAll('[data-mode]')) {
       card.onclick = () => selectMode(card.dataset.mode);
+    }
+    for (const card of document.querySelectorAll('[data-weapon]')) {
+      card.onclick = () => {
+        if (state.started || state.selectedRuleset !== 'boss') return;
+        state.selectedMode = normalizeMode(card.dataset.weapon);
+        input.clearInput();
+        state.game = createGame(state.game.seed, options());
+        syncMode();
+      };
     }
     for (const id of ['menu-pause', 'menu-death', 'menu-result']) $(id).onclick = returnMenu;
     $('pause-button').onclick = togglePause;

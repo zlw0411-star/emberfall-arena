@@ -1,6 +1,8 @@
 // Combat simulation. This module deliberately has no DOM or external dependencies.
 import { lineClear, moveEntity } from './world.js';
 import { modeOf, normalizeMode, MELEE_BALANCE, usesMeleeActions, weaponTypeOf } from './modes.js';
+import { canAct, canTarget, combatModeOf, combatTargets, isBossGame } from './targeting.js';
+import { BOSS_CONFIG, bossIncomingMultiplier } from './boss-config.js';
 import {
   ACTIVES, ATTACK, BRUTE_HEAL_DROP_CHANCE, DESCRIPTIONS, MELEE_ACTIVE_WINDOW, MONSTER_FALLBACK, MONSTERS, PASSIVE,
   bladeReachBonus, bladeWardDuration, bladeWardShield, chainLightningDamage, chainLightningTargets,
@@ -40,11 +42,11 @@ export const MELEE_SKILLS = {
   bladeReach: { name: '刀势延伸', description: DESCRIPTIONS.bladeReach, icon: '⌁', color: '#f0abfc', type: 'passive', maxRank: PASSIVE.bladeReachMaxRank, cooldown: 0 },
   precision: { ...SKILLS.precision }, sustain: { ...SKILLS.sustain }, focus: { ...SKILLS.focus },
 };
-export function getSkills(gameOrMode) {
+export function getSkills(gameOrMode, actor) {
   // 分流靠模式声明里的 skillsKey，不再靠「是不是 MELEE_SKILLS 这个对象」。
   const mode = typeof gameOrMode === 'string'
     ? gameOrMode
-    : gameOrMode?.mode ?? (usesMeleeActionsFor(gameOrMode) ? 'melee' : 'classic');
+    : combatModeOf(gameOrMode, actor) ?? (usesMeleeActionsFor(gameOrMode) ? 'melee' : 'classic');
   return SKILL_CATALOGS[modeOf(mode).skillsKey] ?? SKILLS;
 }
 
@@ -105,7 +107,10 @@ const MAX_LEVEL = PROGRESSION.maxLevel;
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const hypot = (x, y) => Math.hypot(x, y) || 1;
 const actorList = game => Array.isArray(game?.actors) ? game.actors : [];
-const monsterList = game => Array.isArray(game?.monsters) ? game.monsters : [];
+const monsterList = game => {
+  const monsters = Array.isArray(game?.monsters) ? game.monsters : [];
+  return isBossGame(game) && game.boss && !monsters.includes(game.boss) ? [...monsters, game.boss] : monsters;
+};
 const alive = entity => entity && entity.alive !== false && (entity.hp == null || entity.hp > 0);
 const isActor = (game, entity) => !!entity && (entity.isPlayer === true || actorList(game).includes(entity));
 
@@ -161,7 +166,7 @@ export function addXp(game, actor, amount) {
 
 export function getChoices(game, actor) {
   if (!alive(actor) || !(actor.pendingChoices > 0)) return [];
-  const skills = getSkills(game);
+  const skills = getSkills(game, actor);
   const available = Object.keys(skills).filter(id => (actor.skills?.[id] || 0) < skills[id].maxRank && canLearnSkill(actor, id, skills));
   if (!available.length) {
     actor.pendingChoices = 0;
@@ -181,7 +186,7 @@ export function getChoices(game, actor) {
 }
 
 export function chooseSkill(game, actor, skillId) {
-  const skills = getSkills(game);
+  const skills = getSkills(game, actor);
   if (!alive(actor) || !(actor.pendingChoices > 0) || !Object.hasOwn(skills, skillId)) return false;
   let choices = actor.choices;
   if (!Array.isArray(choices) || !choices.length) choices = getChoices(game, actor);
@@ -217,7 +222,7 @@ const RANK_EFFECTS = {
 };
 
 function autoChoose(game, actor) {
-  const skills = getSkills(game);
+  const skills = getSkills(game, actor);
   let guard = 0;
   while (actor.pendingChoices > 0 && guard++ < 10) {
     const options = getChoices(game, actor);
@@ -235,9 +240,9 @@ function autoChoose(game, actor) {
 }
 
 export function castSkill(game, actor, slot, aimX, aimY) {
-  if (!alive(actor) || !Number.isInteger(slot) || slot < 0 || slot >= PROGRESSION.maxActiveSkills) return false;
+  if (!canAct(game, actor) || !Number.isInteger(slot) || slot < 0 || slot >= PROGRESSION.maxActiveSkills) return false;
   // 按模式的 combatKey 查释放器，不再用对象身份比较。
-  const caster = CASTERS[modeOf(game?.mode).combatKey];
+  const caster = CASTERS[modeOf(combatModeOf(game, actor)).combatKey];
   if (!caster) return false;
   return caster(game, actor, slot, aimX, aimY);
 }
@@ -297,7 +302,7 @@ const CAST_EFFECTS = {
     const targets = skillTargets(game, actor);
     const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const forward = target => (target.x - actor.x) * ux + (target.y - actor.y) * uy >= 0;
-    const candidates = targets.filter(target => distance(actor, target) <= def.firstRange && hasLine(game.map, actor, target));
+    const candidates = targets.filter(target => distance(actor, target) <= def.firstRange + (isBossGame(game) && target.isBoss ? target.radius || 0 : 0) && hasLine(game.map, actor, target));
     candidates.sort((a, b) => Number(forward(b)) - Number(forward(a)) || distance(actor, a) - distance(actor, b));
     let target = candidates[0];
     if (!target) return false;
@@ -307,10 +312,10 @@ const CAST_EFFECTS = {
     for (let i = 0; target && i < chainLightningTargets(rank); i++) {
       hitIds.add(target.id ?? target);
       points.push({ x: target.x, y: target.y });
-      damage(game, target, amount, actor);
+      damage(game, target, amount, actor, { attackKind: 'active' });
       const origin = target;
       target = nearest(targets, origin.x, origin.y, Infinity,
-        next => alive(next) && !hitIds.has(next.id ?? next) && distance(origin, next) <= def.jumpRange && hasLine(game.map, origin, next));
+        next => alive(next) && !hitIds.has(next.id ?? next) && distance(origin, next) <= def.jumpRange + (isBossGame(game) && next.isBoss ? next.radius || 0 : 0) && hasLine(game.map, origin, next));
       amount *= def.jumpDamageMultiplier;
     }
     pushEffect(game, { kind: 'chainLightning', points, color: def.color, ttl: def.effectTtl });
@@ -320,21 +325,25 @@ const CAST_EFFECTS = {
     const duration = def.slowDurationBase + def.slowDurationPerRank * (rank - 1);
     for (const target of skillTargets(game, actor)) {
       if (Math.hypot(target.x - actor.x, target.y - actor.y) > radius + (target.radius || 0) || !hasLine(game.map, actor, target)) continue;
-      damage(game, target, scaledDamage(actor, frostNovaDamage(rank)), actor);
-      if (alive(target)) target.slowUntil = Math.max(target.slowUntil || 0, (game.time || 0) + duration);
+      damage(game, target, scaledDamage(actor, frostNovaDamage(rank)), actor, { attackKind: 'active' });
+      if (alive(target) && !(isBossGame(game) && target.isBoss)) target.slowUntil = Math.max(target.slowUntil || 0, (game.time || 0) + duration);
     }
     pushEffect(game, { kind: 'frostNova', x: actor.x, y: actor.y, radius, color: def.color, ttl: def.effectTtl });
   },
 };
 
 function skillTargets(game, actor) {
-  return [...new Set([...monsterList(game), ...actorList(game)])]
-    .filter(target => alive(target) && target !== actor && !(game.phase === 'grace' && isActor(game, target)));
+  return combatTargets(game, actor);
 }
 
-export function damage(game, target, amount, source = null) {
+export function damage(game, target, amount, source = null, context = null) {
   if (!alive(target) || !(amount > 0)) return 0;
   const sourceActor = resolveActor(game, source);
+  if (isBossGame(game)) {
+    if (target.invulnerableUntil > (game.time || 0)) return 0;
+    if (sourceActor && !canTarget(game, sourceActor, target)) return 0;
+    if (target.isBoss && source?.type === 'trap') return 0;
+  }
   if (isActor(game, target) && sourceActor && sourceActor !== target && game?.phase === 'grace') return 0;
   const damageKind = classifyDamage(game, target, sourceActor, source);
   const isActorHit = damageKind === 'actor' && isActor(game, target) && sourceActor !== target;
@@ -345,6 +354,17 @@ export function damage(game, target, amount, source = null) {
   const critical = precision > 0 && sourceActor !== target && damageKind === 'actor' && source?.type !== 'zone'
     && requireRng(game)() < precision * PASSIVE.precisionChancePerRank;
   let dealt = Math.max(0, amount * (critical ? PASSIVE.precisionMultiplier : 1) * (isActorHit ? actorMultiplier : 1));
+  if (isBossGame(game) && target.isBoss && sourceActor) {
+    const kind = context?.attackKind ?? source?.attackKind ?? 'basic';
+    const multipliers = kind === 'active' ? BOSS_CONFIG.skillDamageMultipliers : BOSS_CONFIG.basicDamageMultipliers;
+    dealt *= multipliers[combatModeOf(game, sourceActor)] ?? 1;
+    const bossDamage = Math.min(target.hp, dealt);
+    if (bossDamage > 0) {
+      sourceActor.bossDamage = (sourceActor.bossDamage || 0) + bossDamage;
+      sourceActor.bossParticipated = true;
+    }
+  }
+  dealt *= bossIncomingMultiplier(game, target, source);
   if (isActor(game, target) && damageKind !== 'zone' && source?.type !== 'zone' && target.shieldT > 0 && target.shieldHp > 0) {
     const absorbed = Math.min(target.shieldHp, dealt);
     target.shieldHp -= absorbed;
@@ -366,6 +386,15 @@ export function damage(game, target, amount, source = null) {
   if (target.hp <= 0) {
     target.alive = false;
     if (isActor(game, target)) {
+      if (isBossGame(game)) {
+        target.respawnChoices = { pendingChoices: target.pendingChoices || 0, choices: [...(target.choices || [])] };
+        target.respawnAt = (game.time || 0) + BOSS_CONFIG.respawnSeconds;
+        target.deaths = (target.deaths || 0) + 1;
+        // Participation belongs to the whole 10-second window. A contestant
+        // who returns before its boundary still qualifies if alive then.
+        target.attackHeld = false; target.attackPressed = false;
+        target.meleeAction = null; target.meleeVisuals = [];
+      }
       target.shieldHp = 0; target.shieldT = 0;
       if (target.weaponType === weaponTypeOf('melee')) { target.meleeAction = null; target.meleeVisuals = []; target.attackHeld = false; target.attackPressed = false; }
       target.pendingChoices = 0;
@@ -378,7 +407,7 @@ export function damage(game, target, amount, source = null) {
       }
       const cause = damageCauseLabel(damageKind, sourceActor, source);
       pushEvent(game, `${target.name || '战士'} 倒下了（${cause}）`, '#ff716d');
-    } else {
+    } else if (!(isBossGame(game) && target.isBoss)) {
       target.deathT = 0;
       if (sourceActor) {
         sourceActor.monsterKills = (sourceActor.monsterKills || 0) + 1;
@@ -388,7 +417,7 @@ export function damage(game, target, amount, source = null) {
       dropGem(game, target, sourceActor ? (target.xp || 10) * 0.65 : (target.xp || 10));
       pushEffect(game, { x: target.x, y: target.y, kind: 'burst', color: target.color || '#86efac', radius: 28, ttl: 0.45 });
     }
-    if (sourceActor && sourceActor !== target && alive(sourceActor)) {
+    if (sourceActor && sourceActor !== target && alive(sourceActor) && !(isBossGame(game) && target.isBoss)) {
       const rank = Math.min(PASSIVE.sustainMaxRank, sourceActor.skills?.sustain || 0);
       const healed = Math.min(sourceActor.maxHp - sourceActor.hp, rank * PASSIVE.sustainHealPerRank);
       if (healed > 0) {
@@ -409,11 +438,15 @@ export function updateCombat(game, dt) {
   for (const actor of actors) {
     if (actor.shieldT > 0) actor.shieldT = Math.max(0, actor.shieldT - dt);
     if (actor.shieldHp > 0 && !(actor.shieldT > 0)) actor.shieldHp = 0;
-    if (!alive(actor)) { if (actor.weaponType === weaponTypeOf('melee')) { actor.meleeAction = null; actor.meleeVisuals = []; actor.attackHeld = false; actor.attackPressed = false; } continue; }
+    if (!alive(actor)) {
+      if (isBossGame(game)) for (const id of Object.keys(actor.cooldowns || {})) actor.cooldowns[id] = Math.max(0, actor.cooldowns[id] - dt);
+      if (actor.weaponType === weaponTypeOf('melee')) { actor.meleeAction = null; actor.meleeVisuals = []; actor.attackHeld = false; actor.attackPressed = false; }
+      continue;
+    }
     tickActor(game, actor, dt);
   }
   for (const monster of monsters) {
-    if (alive(monster)) tickMonster(game, monster, dt);
+    if (alive(monster) && !(isBossGame(game) && monster.isBoss)) tickMonster(game, monster, dt);
   }
   tickBullets(game, dt);
   tickGems(game, dt);
@@ -437,8 +470,9 @@ function tickActor(game, actor, dt) {
     actor.hp = Math.min(actor.maxHp, actor.hp + ticks * (PASSIVE.vitalityRegenBase + vitality * PASSIVE.vitalityRegenPerRank));
   }
   if (actor.pendingChoices > 0 && actor.isPlayer !== true) autoChoose(game, actor);
+  if (!canAct(game, actor)) { actor.attackPressed = false; return; }
   // 按模式的 combatKey 查每帧行为，取代原先的 getSkills(game) === MELEE_SKILLS 身份比较。
-  const ticker = TICKERS[modeOf(game?.mode).combatKey];
+  const ticker = TICKERS[modeOf(combatModeOf(game, actor)).combatKey];
   if (ticker) { ticker(game, actor, dt); return; }
   tickRanged(game, actor, dt);
 }
@@ -448,9 +482,10 @@ const TICKERS = { melee: tickMelee };
 
 function tickRanged(game, actor, dt) {
   if (actor.attackTimer <= 0) {
-    const targets = [...monsterList(game)];
-    if (game.phase !== 'grace') targets.push(...actorList(game).filter(other => other !== actor && alive(other)));
-    const target = nearest(targets, actor.x, actor.y, actor.attackRange || 220, entity => alive(entity) && hasLine(game.map, actor, entity));
+    const targets = combatTargets(game, actor);
+    const range = actor.attackRange || 220;
+    const target = nearest(targets, actor.x, actor.y, isBossGame(game) ? Infinity : range,
+      entity => alive(entity) && (!isBossGame(game) || Math.hypot(entity.x - actor.x, entity.y - actor.y) < range + (entity.isBoss ? entity.radius || 0 : 0)) && hasLine(game.map, actor, entity));
     if (target) fireBasic(game, actor, target);
   }
 }
@@ -509,14 +544,17 @@ function tickBullets(game, dt) {
     }
     b.x = nx; b.y = ny;
     const owner = actorList(game).find(a => a.id === b.ownerId) || null;
-    const targets = monsterList(game).filter(m => alive(m));
-    if (owner && game.phase !== 'grace') targets.push(...actorList(game).filter(a => alive(a) && a !== owner));
+    const targets = isBossGame(game) && owner ? combatTargets(game, owner) : monsterList(game).filter(m => alive(m));
+    if (owner && !isBossGame(game) && game.phase !== 'grace') targets.push(...actorList(game).filter(a => alive(a) && a !== owner));
     // Monster projectiles may hit actors. Actor-v-actor hits are added only after grace.
-    if (!owner) targets.push(...actorList(game).filter(a => alive(a)));
-    const hit = nearest(targets, b.x, b.y, (b.radius || 4) + 18, target =>
+    if (!owner) {
+      if (isBossGame(game)) targets.length = 0;
+      targets.push(...actorList(game).filter(a => alive(a)));
+    }
+    const hit = nearest(targets, b.x, b.y, isBossGame(game) ? Infinity : (b.radius || 4) + 18, target =>
       alive(target) && Math.hypot(target.x - b.x, target.y - b.y) <= (target.radius || 10) + (b.radius || 4));
     if (hit) {
-      damage(game, hit, b.damage, owner || b);
+      damage(game, hit, b.damage, owner || b, { attackKind: b.kind === 'basic' ? 'basic' : 'active' });
       if (b.kind === 'fireball') explode(game, b);
       else pushEffect(game, { x: b.x, y: b.y, kind: 'burst', color: b.color, radius: 10, ttl: 0.2 });
       continue;
@@ -534,8 +572,9 @@ function explode(game, bullet) {
 function areaDamage(game, owner, x, y, radius, amount, color, kind = 'ring') {
   for (const target of [...monsterList(game), ...actorList(game)]) {
     if (!alive(target) || target === owner || Math.hypot(target.x - x, target.y - y) > radius + (target.radius || 0)) continue;
+    if (isBossGame(game) && !canTarget(game, owner, target)) continue;
     if (isActor(game, target) && owner && game.phase === 'grace') continue;
-    damage(game, target, amount, owner);
+    damage(game, target, amount, owner, { attackKind: 'active' });
   }
   pushEffect(game, { x, y, kind, color, radius, ttl: 0.42 });
 }
@@ -572,6 +611,7 @@ function tickTraps(game, dt) {
     trap.warning = phase >= 2.1 && phase < 2.8;
     if (!trap.active) continue;
     for (const entity of [...actorList(game), ...monsterList(game)]) {
+      if (isBossGame(game) && entity.isBoss) continue;
       if (!alive(entity) || Math.hypot(entity.x - trap.x, entity.y - trap.y) > trap.r + (entity.radius || 0)) continue;
       entity.trapDamageTimer = (entity.trapDamageTimer || 0) - dt;
       if (entity.trapDamageTimer <= 0) {
@@ -762,9 +802,10 @@ function hitMelee(game, actor, action) {
   for (const target of [...monsterList(game), ...actorList(game)]) {
     const key = target.id ?? target;
     if (!alive(target) || target === actor || action.hitIds.has(key) || (game.phase === 'grace' && isActor(game, target))) continue;
+    if (isBossGame(game) && !canTarget(game, actor, target)) continue;
     if (!circleIntersectsSector(actor, target, action) || !hasLine(game.map, actor, target)) continue;
     action.hitIds.add(key);
-    const dealt = damage(game, target, action.damage, actor);
+    const dealt = damage(game, target, action.damage, actor, { attackKind: action.kind === 'basic' ? 'basic' : 'active' });
     if (dealt) {
       target.hitFlash = Math.max(target.hitFlash || 0, .18);
       if (action.hitIds.size <= 4) pushEffect(game, {
@@ -773,7 +814,7 @@ function hitMelee(game, actor, action) {
         radius: action.kind === 'heavySlash' ? 23 : 15, ttl: .28, maxTtl: .28,
       });
     }
-    if (dealt && action.kind === 'heavySlash' && alive(target)) {
+    if (dealt && action.kind === 'heavySlash' && alive(target) && !(isBossGame(game) && target.isBoss)) {
       const dx = target.x - actor.x, dy = target.y - actor.y, distance = Math.hypot(dx, dy);
       const ux = distance ? dx / distance : Math.cos(action.angle), uy = distance ? dy / distance : Math.sin(action.angle);
       moveEntity(game.map, target, ux * 24, uy * 24);

@@ -4,6 +4,7 @@ import {modeOf,normalizeMode} from './modes.js';
 import {think} from './ai.js';
 import {MONSTERS,MONSTER_SPAWN_POLICY} from './balance.js';
 import {BIOMES,normalizeBiome} from './biomes.js';
+import {createBossGame,stepBossGame,bossResourcePoint} from './boss-rules.js';
 
 /**
  * 输入适配：按当前模式声明传递鼠标瞄准与左键攻击。
@@ -25,6 +26,7 @@ export const CONFIG={actorCount:MATCH_SIZE,simulationHz:60,grace:90,pvpNotice:10
 const names=['你','苔痕','鸦羽','夜行者','烛影','赤砂','雾凇','游隼','青芒','松烟','星屑','玄石'];
 const colors=['#f2be65','#7bc796','#aa9de6','#6bb8dc','#e39ca4','#df9764','#9ccec6','#c7c28a','#a6cb68','#a89a7d','#e2a8d9','#829bba'];
 export function createGame(seed=Date.now(),options={}){
+  if(options?.ruleset==='boss')return createBossGame(seed,options,CONFIG,names,colors,spawnGem,spawnMonster);
   // Map selection has its own seeded stream; it never consumes combat/spawn RNG.
   const maps=Object.keys(BIOMES);
   const biome=options?.mapId==='random'?maps[Math.floor(rngFromSeed('biome:'+seed)()*maps.length)]:normalizeBiome(options?.mapId);
@@ -43,12 +45,12 @@ export function createGame(seed=Date.now(),options={}){
 }
 export function spawnGem(game){
   if(game.phase==='finale'||game.result)return null;
-  const p=randomFree(game.map,game.rng,24);const gem={id:game.nextId++,...p,value:CONFIG.mapGemXp,kind:'xp'};game.gems.push(gem);game.gemSpawnCount++;return gem;
+  const p=game.ruleset==='boss'?bossResourcePoint(game,24):randomFree(game.map,game.rng,24);const gem={id:game.nextId++,...p,value:CONFIG.mapGemXp,kind:'xp'};game.gems.push(gem);game.gemSpawnCount++;return gem;
 }
 export function spawnMonster(game){
   if(game.phase==='finale'||game.result||game.monsters.filter(m=>m.alive).length>=CONFIG.monsterCap)return null;
-  let p=randomFree(game.map,game.rng,30);
-  for(let i=0;i<20&&game.actors.some(a=>a.alive&&Math.hypot(a.x-p.x,a.y-p.y)<180);i++)p=randomFree(game.map,game.rng,30);
+  let p=game.ruleset==='boss'?bossResourcePoint(game,30):randomFree(game.map,game.rng,30);
+  for(let i=0;i<20&&game.actors.some(a=>a.alive&&Math.hypot(a.x-p.x,a.y-p.y)<180);i++)p=game.ruleset==='boss'?bossResourcePoint(game,30):randomFree(game.map,game.rng,30);
   // rng 消耗顺序必须与历史一致：先抽 brute，再抽 bat。
   const policy=MONSTER_SPAWN_POLICY;
   const tier=game.time>policy.bruteAfterSeconds&&game.rng()<policy.bruteChance?'brute':game.rng()<policy.batChance?'bat':'slime';
@@ -56,6 +58,7 @@ export function spawnMonster(game){
   const m={id:game.nextId++,...p,radius:def.radius,type:tier,hp:def.hp,maxHp:def.hp,speed:def.spawnSpeed,damage:def.damage,attackTimer:0,alive:true,xp:def.xp};game.monsters.push(m);game.spawnCount++;return m;
 }
 export function startFinale(game,reason='level'){
+  if(game.ruleset==='boss')return;
   if(game.phase==='finale'||game.result)return;
   let p={x:game.map.width/2,y:game.map.height/2};
   const valid=(game.map.freePoints||[]).filter(p=>p.x>250&&p.y>250&&p.x<game.map.width-250&&p.y<game.map.height-250&&!blocked(game.map,p.x,p.y,100));
@@ -66,6 +69,7 @@ export function startFinale(game,reason='level'){
   game.events.push({text:reason==='time'?'试炼时限将至！余烬风暴即将降临':'有人满级！余烬风暴即将降临',time:game.time,color:'#e78877'});
 }
 export function stepGame(game,dt,input={}){
+  if(game.ruleset==='boss')return stepBossGame(game,dt,input,CONFIG,spawnMonster,spawnGem);
   if(game.paused||game.result)return;
   for(const e of [...game.actors,...game.monsters,...game.bullets]){e.prevX=e.x;e.prevY=e.y;}
   dt=Math.min(dt,Math.max(0,CONFIG.matchLimit-game.time));

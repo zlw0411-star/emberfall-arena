@@ -39,7 +39,7 @@ function step(name, command, args, env = {}) {
 console.log('1/6 unit tests');
 // Windows 下 npm 的 glob 由 shell 展开，node 自身不展开通配符，
 // 所以这里显式传 shell，并保持参数固定（无用户输入）。
-step('unit tests', process.execPath, ['--test', 'tests/contracts.test.js', 'tests/controls.test.js', 'tests/determinism.test.js', 'tests/maps.test.js', 'tests/melee.test.js', 'tests/melee-vfx.test.js', 'tests/modes.test.js', 'tests/monsters.test.js', 'tests/skills.test.js', 'tests/skills-expansion.test.js', 'tests/skill-ai.test.js', 'tests/skill-vfx.test.js']);
+step('unit tests', process.execPath, ['--test', 'tests/contracts.test.js', 'tests/controls.test.js', 'tests/determinism.test.js', 'tests/maps.test.js', 'tests/melee.test.js', 'tests/melee-vfx.test.js', 'tests/modes.test.js', 'tests/monsters.test.js', 'tests/skills.test.js', 'tests/skills-expansion.test.js', 'tests/skill-ai.test.js', 'tests/skill-vfx.test.js', 'tests/boss.test.js', 'tests/boss-dodge.test.js', 'tests/boss-lunge-ai.test.js', 'tests/boss-guard.test.js']);
 
 console.log('2/6 full-match simulation (classic + melee, 60Hz)');
 step('simulate classic 60Hz', process.execPath, ['tests/simulate.js', 'sim-101', 'sim-202', 'sim-303'], { SIM_HZ: '60' });
@@ -51,6 +51,7 @@ step('dom smoke', process.execPath, ['tests/dom-smoke.mjs']);
 console.log('4/6 duel benchmarks');
 step('duels (ranged)', process.execPath, ['tests/duels.js']);
 step('duels (melee)', process.execPath, ['tests/melee-duels.js']);
+step('boss fixed-build duels + mixed-weapon stress', process.execPath, ['tests/boss-duels.mjs']);
 
 console.log('5/6 performance');
 step('performance classic', process.execPath, ['tests/performance.js']);

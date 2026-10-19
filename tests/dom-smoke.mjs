@@ -73,7 +73,16 @@ function makeElement(id = '') {
 
 // 模式选择卡：app.js/overlays.js 会用 querySelectorAll('[data-mode]') 遍历并绑定 onclick
 const modeCards = new Map();
+const weaponCards = new Map();
 const mapCards = new Map();
+function makeWeaponCard(weapon) {
+  if (!weaponCards.has(weapon)) {
+    const card = makeElement(`weapon-card-${weapon}`);
+    card.dataset.weapon = weapon;
+    weaponCards.set(weapon, card);
+  }
+  return weaponCards.get(weapon);
+}
 function makeMapCard(mapId) {
   if (!mapCards.has(mapId)) {
     const card = makeElement(`map-card-${mapId}`);
@@ -95,6 +104,7 @@ globalThis.document = {
   getElementById(id) { return elements.get(id) ?? makeElement(id); },
   querySelectorAll(selector) {
     if (selector === '[data-mode]') return [...modeCards.values()];
+    if (selector === '[data-weapon]') return [...weaponCards.values()];
     if (selector === '[data-map]') return [...mapCards.values()];
     return [];
   },
@@ -146,6 +156,9 @@ process.on('unhandledRejection', (e) => {
 // 因为 app.js 顶层就会 bind() 并遍历 querySelectorAll('[data-mode]')）
 makeModeCard('classic');
 makeModeCard('melee');
+makeModeCard('boss');
+makeWeaponCard('classic');
+makeWeaponCard('melee');
 for (const mapId of ['courtyard', 'desert', 'frost', 'swamp', 'random']) makeMapCard(mapId);
 
 // 加载真实入口；它会在模块顶层查询 DOM 并注册事件
@@ -154,6 +167,8 @@ await import('../dist/js/app.js');
 // ---- 驱动真实主循环 ----------------------------------------------------
 const { Renderer } = await import('../dist/js/renderer.js');
 const { createGame, stepGame, CONFIG } = await import('../dist/js/simulation.js');
+const { damage } = await import('../dist/js/combat.js');
+const { BOSS_CONFIG } = await import('../dist/js/boss-config.js');
 
 /** 推进 n 帧（每帧 16.7ms），让 app.js 自己的 frame() 跑起来。 */
 function pumpFrames(n) {
@@ -470,6 +485,214 @@ for (const mode of ['classic', 'melee']) {
     });
   }
 }
+
+// 首领路径同样通过真实选择卡、HUD 与 rAF 主循环驱动。
+function startBoss(weapon = 'classic', mapId = 'courtyard') {
+  click('menu-pause');
+  makeModeCard('boss').dispatch('click');
+  makeWeaponCard(weapon).dispatch('click');
+  makeMapCard(mapId).dispatch('click');
+  click('start-button');
+  const game = debug.state.game;
+  assert.equal(game.ruleset, 'boss');
+  assert.equal(game.mode, weapon);
+  assert.equal(game.actors[0].combatMode, weapon);
+  return game;
+}
+
+function quietBoss(game) {
+  // 缩短测试只改变夹具：保留真实时钟、战斗、生命周期和渲染路径。
+  for (const actor of game.actors) {
+    actor.isPlayer = true;
+    actor.attackTimer = Infinity;
+    actor.attackHeld = false;
+    actor.attackPressed = false;
+  }
+  game.monsters = [];
+  game.gems = [];
+  game.spawnTimer = 0;
+  game.gemTimer = 0;
+}
+
+scenario('首领：双武器与四地图选择、锁定、重开和返回菜单保留', () => {
+  for (const weapon of ['classic', 'melee']) for (const mapId of Object.keys(BIOMES)) {
+    const game = startBoss(weapon, mapId);
+    pumpFrames(8);
+    assert.equal(document.body.classList.contains('rules-boss'), true);
+    assert.equal(hidden('boss-weapon-picker'), false);
+    assert.equal(modeCards.get('boss').classList.contains('selected'), true);
+    assert.equal(weaponCards.get(weapon).classList.contains('selected'), true);
+    assert.equal(biomeOf(game.map).id, mapId);
+    assert.match(document.getElementById('world-mode').textContent, /首领竞伤/);
+    assert.equal(document.getElementById('world-map-name').textContent, BIOMES[mapId].name);
+    assert.equal(game.actors.filter(actor => actor.combatMode === 'classic').length, 6);
+    assert.equal(game.actors.filter(actor => actor.combatMode === 'melee').length, 6);
+    makeWeaponCard(weapon === 'classic' ? 'melee' : 'classic').dispatch('click');
+    makeMapCard(mapId === 'frost' ? 'desert' : 'frost').dispatch('click');
+    assert.equal(debug.state.game, game, '首领开局后武器与地图均应锁定');
+    click('pause-button');
+    assertFreshGame(weapon, 'restart-pause');
+    assert.equal(debug.state.game.ruleset, 'boss');
+    assert.equal(biomeOf(debug.state.game.map).id, mapId);
+    assertMenuRecovery(weapon);
+    assert.equal(debug.state.selectedRuleset, 'boss');
+    assert.equal(debug.state.selectedMode, weapon);
+    assert.equal(debug.state.selectedMap, mapId);
+    assert.equal(debug.state.game.ruleset, 'boss');
+    assert.equal(biomeOf(debug.state.game.map).id, mapId);
+  }
+});
+
+scenario('首领：85 秒公告、90 秒降临和真实首领面板绘制', () => {
+  const game = startBoss();
+  quietBoss(game);
+  game.time = 84.98;
+  pumpFrames(8);
+  assert.equal(game.bossNoticeSent, true);
+  assert.equal(game.boss, null);
+  assert.equal(hidden('zone-banner'), false);
+  assert.match(document.getElementById('zone-banner').textContent, /首领降临/);
+  assert.equal(game.events.filter(event => /即将降临/.test(event.text)).length, 1);
+  game.time = 89.98;
+  const drawn = calls.fillRect;
+  pumpFrames(8);
+  assert.equal(game.phase, 'boss');
+  assert.equal(game.boss.isBoss, true);
+  assert.equal(hidden('zone-banner'), true);
+  assert.equal(hidden('boss-panel'), false);
+  assert.equal(hidden('boss-ranking-panel'), false);
+  assert.match(document.getElementById('boss-hp-text').textContent, /180,000/);
+  assert.match(document.getElementById('boss-ranking').innerHTML, /boss-rank-row/);
+  assert.match(document.getElementById('boss-stage').textContent, /阶段 1/);
+  assert.ok(calls.fillRect > drawn, '首领出现后真实画布应继续绘制');
+  const player = game.actors[0];
+  game.boss.nextAttackAt = Infinity;
+  player.x = player.prevX = game.boss.x + 120;
+  player.y = player.prevY = game.boss.y;
+  pumpFrames(8);
+  assert.equal(document.getElementById('boss-guard-status').classList.contains('active'), true);
+  assert.match(document.getElementById('boss-guard-status').textContent, /生效.*20%/);
+  player.x = player.prevX = game.boss.x + 200;
+  pumpFrames(8);
+  assert.equal(document.getElementById('boss-guard-status').classList.contains('active'), false);
+  assert.match(document.getElementById('boss-guard-status').textContent, /160/);
+});
+
+scenario('首领：选技不停战、真实死亡保留原卡、自动复活清输入和退出观战', () => {
+  const game = startBoss('melee');
+  quietBoss(game);
+  const player = game.actors[0];
+  player.pendingChoices = 1;
+  player.choices = ['bladeWard', 'precision', 'focus'];
+  pumpFrames(8);
+  assert.equal(hidden('choices'), false);
+  const time = game.time;
+  document.getElementById('choices').dispatch('click', { target: { closest: () => ({ dataset: { choice: '0' } }) } });
+  pumpFrames(8);
+  assert.equal(player.skills.bladeWard, 1);
+  assert.ok(game.time > time);
+  assert.equal(game.paused, false);
+  assert.equal(player.meleeActionSequence || 0, 0, '选卡不能触发挥刀');
+  player.pendingChoices = 1;
+  player.choices = ['power', 'vitality', 'focus'];
+  pumpFrames(8);
+  const cards = [...player.choices];
+  const cardHtml = document.getElementById('choices').innerHTML;
+  holdInput(game);
+  damage(game, player, player.maxHp + 1, { type: 'trap' });
+  assert.equal(player.alive, false, '死亡必须由 damage 真实触发');
+  assert.deepEqual(player.respawnChoices, { pendingChoices: 1, choices: cards });
+  pumpFrames(8);
+  assertInputCleared(game);
+  assert.equal(hidden('choices'), true);
+  assert.equal(hidden('death-card'), false);
+  assert.equal(document.getElementById('game-shell').classList.contains('spectating'), true);
+  assert.ok(debug.state.spectateId, '等待复活时应自动跟随存活角色');
+  click('spectate-button');
+  assert.equal(debug.state.deathDismissed, true);
+  game.time = player.respawnAt - 0.05;
+  // 等待复活时的新输入不能泄漏到复活后的角色。
+  window.dispatch('keydown', { key: 'd' });
+  pumpFrames(8);
+  assert.equal(player.alive, true);
+  assert.equal(game.paused, false);
+  assertInputCleared(game);
+  assert.equal(debug.state.spectateId, null);
+  assert.equal(debug.state.deathDismissed, false);
+  assert.equal(document.getElementById('game-shell').classList.contains('spectating'), false);
+  assert.equal(hidden('death-card'), true);
+  assert.equal(hidden('choices'), false);
+  assert.equal(player.pendingChoices, 1);
+  assert.deepEqual(player.choices, cards);
+  assert.equal(document.getElementById('choices').innerHTML, cardHtml);
+  assert.ok(player.invulnerableUntil > game.time);
+  assert.match(document.getElementById('footer-status').textContent, /重生保护/);
+});
+
+scenario('首领：全员倒下仍推进、600 秒无得分结算和击杀后的并列第一', () => {
+  let game = startBoss();
+  quietBoss(game);
+  for (const actor of game.actors) damage(game, actor, actor.maxHp + 1, { type: 'trap' });
+  const time = game.time;
+  pumpFrames(8);
+  assert.equal(game.actors.some(actor => actor.alive), false);
+  assert.equal(game.result, null);
+  assert.ok(game.time > time, '全员倒下时帧循环必须继续推进');
+  assert.equal(hidden('result-overlay'), true);
+  game.time = 599.95;
+  pumpFrames(8);
+  assert.equal(game.result.reason, 'timeLimit');
+  assert.equal(game.time, 600);
+  assert.deepEqual(game.result.winnerIds, []);
+  assert.equal(document.getElementById('result-title').textContent, '本局无人得分');
+  assert.equal(hidden('result-overlay'), false);
+  assert.equal(hidden('choices'), true);
+  assertInputCleared(game);
+  const endedAt = game.time;
+  pumpFrames(8);
+  assert.equal(game.time, endedAt);
+
+  game = startBoss();
+  quietBoss(game);
+  game.time = 89.98;
+  pumpFrames(8);
+  game.boss.hp = 20;
+  damage(game, game.boss, 10 / BOSS_CONFIG.basicDamageMultipliers[game.actors[0].combatMode], game.actors[0]);
+  damage(game, game.boss, 1000, game.actors[1]);
+  assert.equal(game.result, null, '结果应由真实 step 结算');
+  pumpFrames(8);
+  assert.equal(game.result.reason, 'bossDefeated');
+  assert.deepEqual(new Set(game.result.winnerIds), new Set(game.actors.slice(0, 2).map(actor => actor.id)));
+  assert.equal(game.result.winnerId, null);
+  assert.equal(document.getElementById('result-title').textContent, '你并列竞伤第一');
+  assert.match(document.getElementById('result-stats').innerHTML, /你的首领伤害/);
+  assert.equal(hidden('result-overlay'), false);
+});
+
+scenario('首领返回 classic/melee：旧玩法界面无首领残留', () => {
+  for (const mode of ['classic', 'melee']) {
+    startBoss(mode);
+    pumpFrames(8);
+    const game = startMode(mode);
+    pumpFrames(8);
+    assert.notEqual(game.ruleset, 'boss');
+    assert.equal(debug.state.selectedRuleset, 'arena');
+    assert.equal(document.body.classList.contains('rules-boss'), false);
+    assert.equal(hidden('boss-weapon-picker'), true);
+    assert.equal(hidden('boss-panel'), true);
+    assert.equal(hidden('boss-ranking-panel'), true);
+    assert.equal(hidden('result-overlay'), true);
+    assert.equal(hidden('death-card'), true);
+    assert.equal(hidden('zone-banner'), true);
+    assert.doesNotMatch(document.getElementById('world-mode').textContent, /首领/);
+    assert.doesNotMatch(document.getElementById('attack-stat').textContent, /首领/);
+    assert.equal(document.getElementById('timeline-hunt').textContent, '02 争夺');
+    assert.equal(document.getElementById('timeline-finale').textContent, '03 决战');
+    assert.match(document.getElementById('roster').innerHTML, /roster-row/);
+    assert.equal(debug.state.spectateId, null);
+    assert.equal(document.getElementById('game-shell').classList.contains('spectating'), false);
+  }
+});
 
 // 渲染器单独跑两种模式 + 第三个注册模式
 for (const mode of ['classic', 'melee']) {
