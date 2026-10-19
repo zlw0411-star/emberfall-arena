@@ -3,10 +3,47 @@ import { bossRankings } from './boss-rules.js';
 import { BOSS_CONFIG, bossGuardActive } from './boss-config.js';
 
 const CAST_NAMES = { sweep: '扇形横扫', rocks: '定点落石', cross: '十字震地' };
+function bossRankingContent(row) {
+  return `<b>${String(row.rank).padStart(2, '0')}</b><span>${row.name}<small>${row.combatMode === 'melee' ? '⚔ 近战' : '⌖ 远程'} · ${row.deaths} 次倒下</small></span>`
+    + `<strong>${Math.floor(row.damage).toLocaleString()}<small>${(row.share * 100).toFixed(1)}%</small></strong>`;
+}
+
 export function bossRankingHtml(rows, playerId) {
   return rows.map(row => `<div class="boss-rank-row ${row.id === playerId ? 'you' : ''}">`
-    + `<b>${String(row.rank).padStart(2, '0')}</b><span>${row.name}<small>${row.combatMode === 'melee' ? '⚔ 近战' : '⌖ 远程'} · ${row.deaths} 次倒下</small></span>`
-    + `<strong>${Math.floor(row.damage).toLocaleString()}<small>${(row.share * 100).toFixed(1)}%</small></strong></div>`).join('');
+    + bossRankingContent(row) + '</div>').join('');
+}
+
+function updateBossRanking(state, ranking, player) {
+  const container = $('boss-ranking');
+  const focused = container.contains(document.activeElement) ? document.activeElement : null;
+  const existing = new Map([...container.children].map(row => [row.dataset.actor, row]));
+  const living = new Set(state.game.actors.filter(actor => actor.alive).map(actor => actor.id));
+  const canSpectate = state.started && !state.game.result && !player.alive;
+  for (const [index, score] of ranking.entries()) {
+    const row = existing.get(score.id) || document.createElement('div');
+    existing.delete(score.id);
+    const selectable = canSpectate && living.has(score.id);
+    row.dataset.actor = score.id;
+    row.className = ['boss-rank-row', score.id === player.id ? 'you' : '', living.has(score.id) ? '' : 'dead',
+      selectable ? 'spectate-target' : '', selectable && score.id === state.spectateId ? 'watching' : ''].filter(Boolean).join(' ');
+    if (selectable) {
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('aria-label', `观战${score.name}`);
+      row.setAttribute('aria-pressed', String(score.id === state.spectateId));
+    } else {
+      for (const attribute of ['role', 'tabindex', 'aria-label', 'aria-pressed']) row.removeAttribute(attribute);
+    }
+    const content = bossRankingContent(score);
+    if (row.innerHTML !== content) row.innerHTML = content;
+    if (container.children[index] !== row) container.insertBefore(row, container.children[index] || null);
+  }
+  for (const row of existing.values()) row.remove();
+  // 排名变动移动节点时浏览器可能释放焦点，按角色恢复；失去可选资格则回到战场。
+  if (focused) {
+    const target = focused.getAttribute('role') === 'button' && container.contains(focused) ? focused : $('game-shell');
+    if (document.activeElement !== target) target.focus({ preventScroll: true });
+  }
 }
 
 export function updateBossHud(state, actions) {
@@ -16,7 +53,6 @@ export function updateBossHud(state, actions) {
   const own = ranking.find(row => row.id === player.id);
   show('boss-panel', state.started);
   show('boss-ranking-panel', true);
-  $('boss-ranking').innerHTML = bossRankingHtml(ranking, player.id);
   $('boss-personal').textContent = `你 · 第 ${own.rank} 名 · ${Math.floor(own.damage).toLocaleString()} 伤害`;
   $('boss-name').textContent = '余烬巨像';
   $('boss-stage').textContent = boss ? `阶段 ${boss.stage} / 3` : '降临准备';
@@ -54,13 +90,14 @@ export function updateBossHud(state, actions) {
     show('death-card', !state.deathDismissed);
     const living = game.actors.filter(a => a.alive);
     if (!living.some(a => a.id === state.spectateId)) state.spectateId = living[0]?.id || null;
-  } else if (player.alive) {
+  } else {
     if (state.bossWasDead) actions.clearInput();
     $('game-shell').classList.remove('spectating');
     state.spectateId = null; state.deathDismissed = false;
     show('death-card', false);
   }
   state.bossWasDead = !player.alive;
+  updateBossRanking(state, ranking, player);
   if (!game.result) return;
   actions.clearInput(); show('death-card', false); show('choices', false); show('result-overlay', true); show('zone-banner', false);
   const winners = game.result.winnerIds;

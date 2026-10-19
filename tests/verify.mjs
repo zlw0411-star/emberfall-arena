@@ -5,11 +5,18 @@
 //
 // 与 npm test 的区别：npm test 只管单元测试；本脚本是「改完代码能不能提交」的判定。
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { snapshot } from './state-snapshot.mjs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { readSnapshot, snapshot, snapshotDifferences } from './state-snapshot.mjs';
 
 // 基线纳入版本管理，新克隆的仓库无需先生成即可校验。
 const BASELINE = 'tests/baselines/state-baseline.json';
+let base;
+try {
+  base = readSnapshot(BASELINE);
+} catch (error) {
+  console.error(`FAIL baseline: ${error.message}`);
+  process.exit(1);
+}
 const results = [];
 let failed = 0;
 
@@ -37,9 +44,15 @@ function step(name, command, args, env = {}) {
 }
 
 console.log('1/6 unit tests');
-// Windows 下 npm 的 glob 由 shell 展开，node 自身不展开通配符，
-// 所以这里显式传 shell，并保持参数固定（无用户输入）。
-step('unit tests', process.execPath, ['--test', 'tests/contracts.test.js', 'tests/controls.test.js', 'tests/determinism.test.js', 'tests/maps.test.js', 'tests/melee.test.js', 'tests/melee-vfx.test.js', 'tests/modes.test.js', 'tests/monsters.test.js', 'tests/skills.test.js', 'tests/skills-expansion.test.js', 'tests/skill-ai.test.js', 'tests/skill-vfx.test.js', 'tests/boss.test.js', 'tests/boss-dodge.test.js', 'tests/boss-lunge-ai.test.js', 'tests/boss-guard.test.js']);
+// 显式文件清单同时适用于 Windows 和其他平台，新增测试应接入这里。
+step('unit tests', process.execPath, [
+  '--test', 'tests/contracts.test.js', 'tests/controls.test.js', 'tests/determinism.test.js',
+  'tests/maps.test.js', 'tests/melee.test.js', 'tests/melee-vfx.test.js', 'tests/modes.test.js',
+  'tests/monsters.test.js', 'tests/skills.test.js', 'tests/skills-expansion.test.js',
+  'tests/skill-ai.test.js', 'tests/skill-vfx.test.js', 'tests/boss.test.js',
+  'tests/boss-dodge.test.js', 'tests/boss-lunge-ai.test.js', 'tests/boss-guard.test.js',
+  'tests/regen.test.js', 'tests/state-snapshot.test.js', 'tests/minimap.test.js',
+]);
 
 console.log('2/6 full-match simulation (classic + melee, 60Hz)');
 step('simulate classic 60Hz', process.execPath, ['tests/simulate.js', 'sim-101', 'sim-202', 'sim-303'], { SIM_HZ: '60' });
@@ -58,31 +71,20 @@ step('performance classic', process.execPath, ['tests/performance.js']);
 step('performance melee', process.execPath, ['tests/performance.js'], { GAME_MODE: 'melee' });
 
 console.log('6/6 frame-by-frame state identity vs baseline');
-if (!existsSync(BASELINE)) {
-  console.log(`  SKIP  no baseline at ${BASELINE}; run: npm run snapshot:write`);
-} else {
-  const base = JSON.parse(readFileSync(BASELINE, 'utf8'));
-  const now = snapshot();
-  let diverged = 0;
-  for (const key of Object.keys(base)) {
-    const a = base[key];
-    const b = now[key];
-    if (!b) { console.log(`  MISS  ${key}`); diverged++; continue; }
-    const same = a.steps === b.steps && a.endTime === b.endTime && a.winner === b.winner
-      && a.marks.length === b.marks.length && !a.marks.some((hash, i) => hash !== b.marks[i]);
-    if (!same) {
-      const at = a.marks.findIndex((hash, i) => hash !== b.marks[i]);
-      console.log(`  DIFF  ${key}: steps ${a.steps}->${b.steps}, end ${a.endTime}->${b.endTime}, winner ${a.winner}->${b.winner}`
-        + (at >= 0 ? `, first divergence at ${at + 1}s` : ''));
-      diverged++;
-    }
-  }
-  const total = Object.values(now).reduce((sum, row) => sum + row.marks.length, 0);
-  if (diverged) {
-    failed++;
-    console.log(`  FAIL  ${diverged}/${Object.keys(base).length} runs diverged`);
-  } else {
+{
+  const started = Date.now();
+  try {
+    const now = snapshot();
+    const differences = snapshotDifferences(base, now);
+    const total = Object.values(now).reduce((sum, row) => sum + row.marks.length, 0);
+    for (const difference of differences) console.log(`  DIFF  ${difference}`);
+    if (differences.length) throw new Error(`${differences.length}/${Object.keys(base).length} runs diverged`);
     console.log(`  ok    ${Object.keys(base).length} runs byte-identical (${total} hashes)`);
+    results.push({ name: 'state snapshot', ok: true, ms: Date.now() - started });
+  } catch (error) {
+    failed++;
+    results.push({ name: 'state snapshot', ok: false, ms: Date.now() - started });
+    console.log(`  FAIL  ${error.message}`);
   }
 }
 

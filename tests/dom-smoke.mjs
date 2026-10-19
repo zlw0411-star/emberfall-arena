@@ -45,21 +45,72 @@ function makeElement(id = '') {
       toggle(c, on) { if (on === undefined) { this._set.has(c) ? this._set.delete(c) : this._set.add(c); } else if (on) this._set.add(c); else this._set.delete(c); },
       contains(c) { return this._set.has(c); },
     },
-    children: [], textContent: '', innerHTML: '',
+    children: [], parentNode: null, textContent: '', _innerHTML: '', _attributes: new Map(),
+    get className() { return [...this.classList._set].join(' '); },
+    set className(value) { this.classList._set = new Set(value.split(/\s+/).filter(Boolean)); },
+    get innerHTML() { return this._innerHTML + this.children.map(child => child.outerHTML).join(''); },
+    set innerHTML(value) {
+      for (const child of [...this.children]) child.remove();
+      this._innerHTML = value;
+    },
+    get outerHTML() {
+      const attributes = [...this._attributes];
+      if (this.className) attributes.push(['class', this.className]);
+      for (const [key, value] of Object.entries(this.dataset)) attributes.push([`data-${key}`, value]);
+      const tag = (this.tagName || 'div').toLowerCase();
+      return `<${tag}${attributes.map(([key, value]) => ` ${key}="${value}"`).join('')}>${this.innerHTML}</${tag}>`;
+    },
     width: 800, height: 600, clientWidth: 800, clientHeight: 600,
     _handlers: {},
     addEventListener(type, fn) { (this._handlers[type] ??= []).push(fn); },
     removeEventListener() {},
     dispatch(type, event = {}) {
-      for (const fn of this._handlers[type] ?? []) fn({ preventDefault() {}, ...event });
+      const dispatched = event.type === type ? event : { type, target: this, defaultPrevented: false,
+        preventDefault() { this.defaultPrevented = true; }, ...event };
+      for (const fn of this._handlers[type] ?? []) fn(dispatched);
       const handler = this[`on${type}`];
-      if (typeof handler === 'function') handler({ preventDefault() {}, ...event });
-      return event;
+      if (typeof handler === 'function') handler(dispatched);
+      if (this.parentNode) this.parentNode.dispatch(type, dispatched);
+      return dispatched;
     },
-    setAttribute() {}, getAttribute() { return null; }, removeAttribute() {},
-    appendChild() {}, focus() {}, blur() {}, click() {},
+    setAttribute(name, value) { this._attributes.set(name, String(value)); },
+    getAttribute(name) {
+      if (name === 'class') return this.className;
+      if (name.startsWith('data-')) return this.dataset[name.slice(5)] ?? null;
+      return this._attributes.get(name) ?? null;
+    },
+    removeAttribute(name) { this._attributes.delete(name); },
+    appendChild(child) { return this.insertBefore(child, null); },
+    insertBefore(child, reference) {
+      if (child === reference) return child;
+      child.remove();
+      const index = reference ? this.children.indexOf(reference) : this.children.length;
+      assert.ok(index >= 0, 'insertBefore 的参照节点必须属于容器');
+      this.children.splice(index, 0, child);
+      child.parentNode = this;
+      return child;
+    },
+    remove() {
+      if (this.contains(globalThis.document?.activeElement)) document.activeElement = document.body;
+      if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
+      this.parentNode = null;
+    },
+    contains(node) { return node != null && (node === this || this.children.some(child => child.contains(node))); },
+    focus() { document.activeElement = this; },
+    blur() { if (document.activeElement === this) document.activeElement = document.body; },
+    click() { this.dispatch('click'); },
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
-    querySelectorAll: () => [], querySelector: () => null, closest: () => null,
+    matches(selector) {
+      const attribute = selector.match(/^\[([\w-]+)(?:="([^"]*)")?\]$/);
+      if (attribute) return this.getAttribute(attribute[1]) !== null
+        && (attribute[2] === undefined || this.getAttribute(attribute[1]) === attribute[2]);
+      return selector.startsWith('.') && this.classList.contains(selector.slice(1));
+    },
+    querySelectorAll(selector) {
+      return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]);
+    },
+    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+    closest(selector) { return this.matches(selector) ? this : this.parentNode?.closest(selector) || null; },
     getContext: () => makeCtx(),
     _captures: new Set(),
     setPointerCapture(id) { this._captures.add(id); },
@@ -120,6 +171,7 @@ globalThis.document = {
   body: makeElement('body'),
   hidden: false,
 };
+document.activeElement = document.body;
 globalThis.window = {
   _handlers: {},
   addEventListener(type, fn) { (this._handlers[type] ??= []).push(fn); },
@@ -514,6 +566,148 @@ function quietBoss(game) {
   game.gemTimer = 0;
 }
 
+const bossRankRow = actor => document.getElementById('boss-ranking').querySelector(`[data-actor="${actor.id}"]`);
+function assertStaticBossRanking() {
+  const ranking = document.getElementById('boss-ranking');
+  assert.equal(ranking.querySelectorAll('[role="button"]').length, 0);
+  assert.equal(ranking.querySelectorAll('[tabindex]').length, 0);
+  assert.equal(ranking.querySelectorAll('[aria-pressed]').length, 0);
+}
+
+for (const weapon of ['classic', 'melee']) {
+  scenario(`首领 ${weapon}：伤害榜真实点击/键盘、排序焦点、死者拒绝与复活撤销交互`, () => {
+    const game = startBoss(weapon);
+    quietBoss(game);
+    pumpFrames(8);
+    assertStaticBossRanking();
+    const [player, first, second, third, dead] = game.actors;
+    bossRankRow(second).click();
+    assert.equal(debug.state.spectateId, null, '玩家存活时不可选择观战');
+    damage(game, player, player.maxHp + 1, { type: 'trap' });
+    damage(game, dead, dead.maxHp + 1, { type: 'trap' });
+    pumpFrames(8);
+    assert.equal(debug.state.spectateId, first.id);
+    assert.equal(bossRankRow(first).getAttribute('aria-pressed'), 'true');
+    assert.equal(bossRankRow(player).getAttribute('role'), null);
+    assert.equal(bossRankRow(dead).getAttribute('tabindex'), null);
+    const secondRow = bossRankRow(second), thirdRow = bossRankRow(third);
+    assert.equal(secondRow.getAttribute('role'), 'button');
+    assert.equal(secondRow.getAttribute('tabindex'), '0');
+    assert.match(secondRow.getAttribute('aria-label'), /观战/);
+    secondRow.click();
+    assert.equal(debug.state.spectateId, second.id, '伤害榜的实际行必须能点击切换');
+    thirdRow.focus();
+    assert.equal(thirdRow.dispatch('keydown', { key: 'Enter' }).defaultPrevented, true);
+    assert.equal(debug.state.spectateId, third.id, 'Enter 必须切换观战');
+    secondRow.focus();
+    assert.equal(secondRow.dispatch('keydown', { key: ' ' }).defaultPrevented, true, '空格切换必须阻止页面滚动');
+    assert.equal(debug.state.spectateId, second.id, 'Space 必须切换观战');
+    thirdRow.dispatch('keydown', { key: 'ArrowDown' });
+    assert.equal(debug.state.spectateId, second.id, '其他按键不应切换观战');
+    bossRankRow(dead).click();
+    bossRankRow(dead).dispatch('keydown', { key: 'Enter' });
+    assert.equal(debug.state.spectateId, second.id, '死者不能成为观战对象');
+    pumpFrames(8);
+    assert.equal(bossRankRow(second), secondRow, '常规刷新必须复用角色行');
+    assert.equal(document.activeElement, secondRow, '常规刷新必须保留键盘焦点');
+    assert.equal(secondRow.getAttribute('aria-pressed'), 'true');
+    assert.equal(thirdRow.getAttribute('aria-pressed'), 'false');
+    const oldIndex = document.getElementById('boss-ranking').children.indexOf(secondRow);
+    second.bossDamage = 700;
+    pumpFrames(8);
+    assert.notEqual(document.getElementById('boss-ranking').children.indexOf(secondRow), oldIndex);
+    assert.equal(bossRankRow(second), secondRow, '排名变化仍须复用角色行');
+    assert.equal(document.activeElement, secondRow, '排名变化不得丢失焦点');
+    damage(game, second, second.maxHp + 1, { type: 'trap' });
+    thirdRow.click();
+    assert.equal(debug.state.spectateId, third.id);
+    secondRow.click();
+    secondRow.dispatch('keydown', { key: ' ' });
+    assert.equal(debug.state.spectateId, third.id, 'HUD 刷新前也必须拒绝已死目标');
+    pumpFrames(8);
+    assert.equal(secondRow.getAttribute('role'), null);
+    assert.equal(secondRow.getAttribute('tabindex'), null);
+    assert.equal(document.activeElement, document.getElementById('game-shell'), '焦点角色死亡后应回到战场');
+    damage(game, third, third.maxHp + 1, { type: 'trap' });
+    pumpFrames(8);
+    assert.equal(debug.state.spectateId, first.id, '观战对象死亡后应自动回退到存活角色');
+    const firstRow = bossRankRow(first);
+    firstRow.focus();
+    // 让真实 rAF 先完成复活，保留上一轮 HUD，验证事件按即时状态拒绝。
+    game.time = player.respawnAt - 1 / 120;
+    debug.state.lastHud = frameTime;
+    pumpFrames(1);
+    assert.equal(player.alive, true);
+    assert.equal(firstRow.getAttribute('role'), 'button', '此时应仍是复活前的旧 DOM');
+    const previous = debug.state.spectateId;
+    for (const key of ['Enter', ' ']) {
+      bossRankRow(game.actors[5]).dispatch('keydown', { key });
+      assert.equal(debug.state.spectateId, previous, '复活后旧 DOM 键盘入口必须立即拒绝');
+    }
+    bossRankRow(game.actors[5]).click();
+    assert.equal(debug.state.spectateId, previous, '复活后旧 DOM 点击入口必须立即拒绝');
+    pumpFrames(8);
+    assert.equal(debug.state.spectateId, null);
+    assert.equal(debug.state.deathDismissed, false);
+    assert.equal(document.getElementById('game-shell').classList.contains('spectating'), false);
+    assert.equal(hidden('death-card'), true);
+    assertStaticBossRanking();
+    assert.equal(document.activeElement, document.getElementById('game-shell'));
+    bossRankRow(first).click();
+    bossRankRow(first).dispatch('keydown', { key: 'Enter' });
+    assert.equal(debug.state.spectateId, null);
+  });
+}
+
+scenario('首领：未开局和死亡等待中的结算均拒绝切换，结算榜单保持静态', () => {
+  startBoss();
+  click('menu-pause');
+  pumpFrames(8);
+  assertStaticBossRanking();
+  const preview = debug.state.game;
+  preview.actors[0].alive = false;
+  bossRankRow(preview.actors[2]).click();
+  bossRankRow(preview.actors[2]).dispatch('keydown', { key: 'Enter' });
+  assert.equal(debug.state.spectateId, null, '未开局不得切换');
+
+  const game = startBoss();
+  quietBoss(game);
+  game.time = 599;
+  damage(game, game.actors[0], game.actors[0].maxHp + 1, { type: 'trap' });
+  pumpFrames(8);
+  const row = bossRankRow(game.actors[2]);
+  row.focus();
+  row.click();
+  assert.equal(debug.state.spectateId, game.actors[2].id);
+  game.time = 600 - 1 / 120;
+  debug.state.lastHud = frameTime;
+  pumpFrames(1);
+  assert.equal(game.result.reason, 'timeLimit');
+  assert.equal(row.getAttribute('role'), 'button', '此时应仍是结算前的旧 DOM');
+  const previous = debug.state.spectateId;
+  for (const key of ['Enter', ' ']) {
+    bossRankRow(game.actors[3]).dispatch('keydown', { key });
+    assert.equal(debug.state.spectateId, previous, '结算必须立即拒绝键盘切换');
+  }
+  bossRankRow(game.actors[3]).click();
+  assert.equal(debug.state.spectateId, previous, '结算必须立即拒绝点击切换');
+  pumpFrames(8);
+  assert.equal(hidden('result-overlay'), false);
+  assert.equal(hidden('death-card'), true);
+  assert.equal(debug.state.spectateId, null);
+  assert.equal(debug.state.deathDismissed, false);
+  assert.equal(document.getElementById('game-shell').classList.contains('spectating'), false);
+  assert.equal(document.activeElement, document.getElementById('game-shell'));
+  assertStaticBossRanking();
+  const resultHtml = document.getElementById('result-stats').innerHTML;
+  assert.match(resultHtml, /result-ranking/);
+  assert.doesNotMatch(resultHtml, /data-actor|role="button"|tabindex|aria-pressed/);
+  row.click();
+  row.dispatch('keydown', { key: 'Enter' });
+  row.dispatch('keydown', { key: ' ' });
+  assert.equal(debug.state.spectateId, null);
+});
+
 scenario('首领：双武器与四地图选择、锁定、重开和返回菜单保留', () => {
   for (const weapon of ['classic', 'melee']) for (const mapId of Object.keys(BIOMES)) {
     const game = startBoss(weapon, mapId);
@@ -636,6 +830,8 @@ scenario('首领：全员倒下仍推进、600 秒无得分结算和击杀后的
   const time = game.time;
   pumpFrames(8);
   assert.equal(game.actors.some(actor => actor.alive), false);
+  assert.equal(debug.state.spectateId, null, '全员倒下后不应保留失效观战目标');
+  assertStaticBossRanking();
   assert.equal(game.result, null);
   assert.ok(game.time > time, '全员倒下时帧循环必须继续推进');
   assert.equal(hidden('result-overlay'), true);

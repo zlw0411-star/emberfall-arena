@@ -190,7 +190,17 @@ export function createFlow(state, input, renderer, portraitCtx) {
   function spectate() {
     state.deathDismissed = true;
     show('death-card', false);
-    toast('观战中 · 点击右侧存活旅者切换视角');
+    toast('观战中 · 点击右侧存活旅者，或用 Enter / 空格切换视角');
+  }
+
+  function selectSpectateTarget(event) {
+    if (event.type === 'keydown' && !['Enter', ' '].includes(event.key)) return;
+    const game = state.game;
+    if (!state.started || game.result || game.actors[0].alive) return;
+    const row = event.target.closest('[data-actor]');
+    if (!row || !game.actors.some(actor => actor.id === row.dataset.actor && actor.alive)) return;
+    if (event.type === 'keydown') event.preventDefault();
+    state.spectateId = row.dataset.actor;
   }
 
   function toggleSound() {
@@ -239,14 +249,10 @@ export function createFlow(state, input, renderer, portraitCtx) {
       const card = event.target.closest('[data-choice]');
       if (card) pick(Number(card.dataset.choice));
     });
-    $('roster').addEventListener('click', (event) => {
-      const player = state.game.actors[0];
-      if (player.alive) return;
-      const row = event.target.closest('[data-actor]');
-      if (row && state.game.actors.some((actor) => actor.id === row.dataset.actor && actor.alive)) {
-        state.spectateId = row.dataset.actor;
-      }
-    });
+    for (const id of ['roster', 'boss-ranking']) {
+      $(id).addEventListener('click', selectSpectateTarget);
+      $(id).addEventListener('keydown', selectSpectateTarget);
+    }
     $('game-shell').tabIndex = -1;
   }
 

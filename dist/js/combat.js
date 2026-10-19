@@ -213,6 +213,8 @@ function applySkillRank(actor, skillId, skills = SKILLS) {
 /** 被动技能升级后的属性重算。键必须与技能目录中的 id 对应。 */
 const RANK_EFFECTS = {
   vitality(actor) {
+    // Learning starts the first cycle now; upgrades keep its fractional progress.
+    if (actor.skills.vitality === 1) actor.regenTimer = 0;
     actor.maxHp = levelMaxHp(actor.level) + (actor.skills.vitality || 0) * COMBAT_BALANCE.vitalityMaxHp;
     actor.hp = Math.min(actor.maxHp, actor.hp + COMBAT_BALANCE.vitalityHeal);
   },
@@ -462,9 +464,10 @@ function tickActor(game, actor, dt) {
     actor.speedBoostT = Math.max(0, actor.speedBoostT - dt);
     if (!actor.speedBoostT) actor.combatSpeedMult = 1;
   }
-  actor.regenTimer = (actor.regenTimer || 0) + dt;
   const vitality = actor.skills?.vitality || 0;
-  if (vitality && actor.hp < actor.maxHp && actor.regenTimer >= PASSIVE.vitalityRegenInterval) {
+  actor.regenTimer = vitality ? (actor.regenTimer || 0) + dt : 0;
+  if (vitality && actor.regenTimer >= PASSIVE.vitalityRegenInterval) {
+    // Advance the clock even at full health: unused healing never accumulates.
     const ticks = Math.floor(actor.regenTimer / PASSIVE.vitalityRegenInterval);
     actor.regenTimer -= ticks * PASSIVE.vitalityRegenInterval;
     actor.hp = Math.min(actor.maxHp, actor.hp + ticks * (PASSIVE.vitalityRegenBase + vitality * PASSIVE.vitalityRegenPerRank));

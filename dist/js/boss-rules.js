@@ -58,7 +58,7 @@ function respawn(game, actor) {
   const position = safety(original) > 120 ? original : [...points].sort((a, b) => safety(b) - safety(a))[0];
   Object.assign(actor, { x: position.x, y: position.y, prevX: position.x, prevY: position.y,
     alive: true, hp: actor.maxHp, respawnAt: null, invulnerableUntil: game.time + BOSS_CONFIG.protectionSeconds,
-    shieldHp: 0, shieldT: 0, slowUntil: 0, speedBoostT: 0, combatSpeedMult: 1, hitFlash: 0,
+    shieldHp: 0, shieldT: 0, slowUntil: 0, speedBoostT: 0, combatSpeedMult: 1, hitFlash: 0, regenTimer: 0,
     attackHeld: false, attackPressed: false, meleeAction: null, meleeVisuals: [], moving: false, trapDamageTimer: 0 });
   actor.ai = {};
   actor.pendingChoices = actor.respawnChoices?.pendingChoices || 0;
