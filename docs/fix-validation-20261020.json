@@ -1,0 +1,1219 @@
+{
+  "at": "2026-10-20T14:37:15.434Z",
+  "sourceBase": "98c9dd74057fb26d383dbace5e1d87b5b7aa5cf6",
+  "scope": [
+    "A01 stale choice cards",
+    "A02 help focus and pause",
+    "A03 native Space activation",
+    "A04 spike cooldown",
+    "A05 fireball spawn",
+    "A06 performance gate",
+    "A07 configuration descriptions",
+    "A08 map gem cap"
+  ],
+  "tests": {
+    "unitFiles": 22,
+    "unitTests": 214,
+    "addedUnitTests": 26,
+    "domScenarios": 33,
+    "verify": {
+      "at": "2026-10-20T14:34:03.140Z",
+      "results": [
+        {
+          "name": "unit tests",
+          "ok": true,
+          "ms": 10368
+        },
+        {
+          "name": "simulate classic 60Hz",
+          "ok": true,
+          "ms": 31520
+        },
+        {
+          "name": "simulate melee 60Hz",
+          "ok": true,
+          "ms": 10698
+        },
+        {
+          "name": "dom smoke",
+          "ok": true,
+          "ms": 5634
+        },
+        {
+          "name": "duels (ranged)",
+          "ok": true,
+          "ms": 76
+        },
+        {
+          "name": "duels (melee)",
+          "ok": true,
+          "ms": 77
+        },
+        {
+          "name": "boss fixed-build duels + mixed-weapon stress",
+          "ok": true,
+          "ms": 864,
+          "metrics": {
+            "damageMultipliers": {
+              "basic": {
+                "classic": 2,
+                "melee": 1
+              },
+              "skill": {
+                "classic": 0.95,
+                "melee": 1
+              }
+            },
+            "actors": 12,
+            "monsters": 62,
+            "mode": "boss",
+            "measuredFrames": 1800,
+            "averageMs": 0.381,
+            "p95Ms": 0.744,
+            "p95LimitMs": 8
+          }
+        },
+        {
+          "name": "performance classic",
+          "ok": true,
+          "ms": 1069,
+          "metrics": {
+            "node": "v24.18.0",
+            "mode": "classic",
+            "seed": "performance-12actors-62monsters",
+            "actors": 12,
+            "liveMonsters": 62,
+            "simulatedSeconds": 30,
+            "measuredSteps": 1800,
+            "stepAverageMs": 0.506,
+            "stepP95Ms": 0.973,
+            "stepP95Of60HzBudgetPercent": 5.8,
+            "p95BudgetMs": 8,
+            "p95WithinBudget": true,
+            "stepMaxMs": 10.52,
+            "measuredWallSeconds": 0.911,
+            "realtimeFactor": 32.92
+          }
+        },
+        {
+          "name": "performance melee",
+          "ok": true,
+          "ms": 949,
+          "metrics": {
+            "node": "v24.18.0",
+            "mode": "melee",
+            "seed": "performance-12actors-62monsters",
+            "actors": 12,
+            "liveMonsters": 62,
+            "simulatedSeconds": 30,
+            "measuredSteps": 1800,
+            "stepAverageMs": 0.438,
+            "stepP95Ms": 0.672,
+            "stepP95Of60HzBudgetPercent": 4,
+            "p95BudgetMs": 8,
+            "p95WithinBudget": true,
+            "stepMaxMs": 1.205,
+            "measuredWallSeconds": 0.788,
+            "realtimeFactor": 38.05
+          }
+        },
+        {
+          "name": "state snapshot",
+          "ok": true,
+          "ms": 133506
+        }
+      ],
+      "failed": 0
+    }
+  },
+  "boss": {
+    "config": {
+      "spawnAt": 90,
+      "noticeAt": 85,
+      "timeLimit": 600,
+      "maxHp": 180000,
+      "radius": 64,
+      "respawnSeconds": 8,
+      "protectionSeconds": 2,
+      "nearGuardRadius": 160,
+      "nearGuardReduction": 0.2,
+      "xpInterval": 10,
+      "xpMultiplier": 1.5,
+      "participationXp": 4,
+      "basicDamageMultipliers": {
+        "classic": 2,
+        "melee": 1
+      },
+      "skillDamageMultipliers": {
+        "classic": 0.95,
+        "melee": 1
+      }
+    },
+    "runs": [
+      {
+        "mapId": "courtyard",
+        "mode": "classic",
+        "seed": "boss-sim-101",
+        "result": "bossDefeated",
+        "time": 562.53,
+        "steps": 33752,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 0,
+        "winnerIds": [
+          "a0"
+        ],
+        "winnerModes": {
+          "classic": 1,
+          "melee": 0
+        },
+        "wallMs": 7983,
+        "damageByWeapon": {
+          "classic": 92016.79,
+          "melee": 87983.21
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 0
+        }
+      },
+      {
+        "mapId": "courtyard",
+        "mode": "classic",
+        "seed": "boss-sim-202",
+        "result": "bossDefeated",
+        "time": 599.52,
+        "steps": 35971,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 2,
+        "winnerIds": [
+          "a4"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 8339,
+        "damageByWeapon": {
+          "classic": 80812.91,
+          "melee": 99187.09
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 2
+        }
+      },
+      {
+        "mapId": "courtyard",
+        "mode": "classic",
+        "seed": "boss-sim-303",
+        "result": "bossDefeated",
+        "time": 592.77,
+        "steps": 35566,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 1,
+        "winnerIds": [
+          "a6"
+        ],
+        "winnerModes": {
+          "classic": 1,
+          "melee": 0
+        },
+        "wallMs": 8091.5,
+        "damageByWeapon": {
+          "classic": 87292.56,
+          "melee": 92707.44
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 1
+        }
+      },
+      {
+        "mapId": "courtyard",
+        "mode": "melee",
+        "seed": "boss-sim-101",
+        "result": "bossDefeated",
+        "time": 570.37,
+        "steps": 34222,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 11,
+        "winnerIds": [
+          "a11"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 8234.9,
+        "damageByWeapon": {
+          "classic": 74845.1,
+          "melee": 105154.9
+        },
+        "deathsByWeapon": {
+          "classic": 1,
+          "melee": 10
+        }
+      },
+      {
+        "mapId": "courtyard",
+        "mode": "melee",
+        "seed": "boss-sim-202",
+        "result": "bossDefeated",
+        "time": 583.78,
+        "steps": 35027,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 4,
+        "winnerIds": [
+          "a8"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 8537.4,
+        "damageByWeapon": {
+          "classic": 81324.78,
+          "melee": 98675.22
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 4
+        }
+      },
+      {
+        "mapId": "courtyard",
+        "mode": "melee",
+        "seed": "boss-sim-303",
+        "result": "bossDefeated",
+        "time": 594.38,
+        "steps": 35663,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 2,
+        "winnerIds": [
+          "a0"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 8633.8,
+        "damageByWeapon": {
+          "classic": 83604,
+          "melee": 96396
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 2
+        }
+      },
+      {
+        "mapId": "desert",
+        "mode": "classic",
+        "seed": "boss-sim-101",
+        "result": "bossDefeated",
+        "time": 563.17,
+        "steps": 33790,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 8,
+        "winnerIds": [
+          "a7"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 7972,
+        "damageByWeapon": {
+          "classic": 82428.12,
+          "melee": 97571.88
+        },
+        "deathsByWeapon": {
+          "classic": 1,
+          "melee": 7
+        }
+      },
+      {
+        "mapId": "desert",
+        "mode": "classic",
+        "seed": "boss-sim-202",
+        "result": "bossDefeated",
+        "time": 548.65,
+        "steps": 32919,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 1,
+        "winnerIds": [
+          "a2"
+        ],
+        "winnerModes": {
+          "classic": 1,
+          "melee": 0
+        },
+        "wallMs": 7487.1,
+        "damageByWeapon": {
+          "classic": 91433.43,
+          "melee": 88566.57
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 1
+        }
+      },
+      {
+        "mapId": "desert",
+        "mode": "classic",
+        "seed": "boss-sim-303",
+        "result": "bossDefeated",
+        "time": 560.05,
+        "steps": 33603,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 0,
+        "winnerIds": [
+          "a1"
+        ],
+        "winnerModes": {
+          "classic": 1,
+          "melee": 0
+        },
+        "wallMs": 7370.4,
+        "damageByWeapon": {
+          "classic": 90164.79,
+          "melee": 89835.21
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 0
+        }
+      },
+      {
+        "mapId": "desert",
+        "mode": "melee",
+        "seed": "boss-sim-101",
+        "result": "bossDefeated",
+        "time": 584.37,
+        "steps": 35062,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 7,
+        "winnerIds": [
+          "a10"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 7789,
+        "damageByWeapon": {
+          "classic": 73169.57,
+          "melee": 106830.43
+        },
+        "deathsByWeapon": {
+          "classic": 3,
+          "melee": 4
+        }
+      },
+      {
+        "mapId": "desert",
+        "mode": "melee",
+        "seed": "boss-sim-202",
+        "result": "bossDefeated",
+        "time": 555.07,
+        "steps": 33304,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 0,
+        "winnerIds": [
+          "a9"
+        ],
+        "winnerModes": {
+          "classic": 1,
+          "melee": 0
+        },
+        "wallMs": 7219.1,
+        "damageByWeapon": {
+          "classic": 89289.12,
+          "melee": 90710.88
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 0
+        }
+      },
+      {
+        "mapId": "desert",
+        "mode": "melee",
+        "seed": "boss-sim-303",
+        "result": "bossDefeated",
+        "time": 579.63,
+        "steps": 34778,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 2,
+        "winnerIds": [
+          "a0"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 7806.1,
+        "damageByWeapon": {
+          "classic": 84738.08,
+          "melee": 95261.92
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 2
+        }
+      },
+      {
+        "mapId": "frost",
+        "mode": "classic",
+        "seed": "boss-sim-101",
+        "result": "bossDefeated",
+        "time": 571.13,
+        "steps": 34268,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 10,
+        "winnerIds": [
+          "a10"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 8773.2,
+        "damageByWeapon": {
+          "classic": 81161.45,
+          "melee": 98838.55
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 10
+        }
+      },
+      {
+        "mapId": "frost",
+        "mode": "classic",
+        "seed": "boss-sim-202",
+        "result": "bossDefeated",
+        "time": 568.12,
+        "steps": 34087,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 2,
+        "winnerIds": [
+          "a4"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 9605.5,
+        "damageByWeapon": {
+          "classic": 82113.84,
+          "melee": 97886.16
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 2
+        }
+      },
+      {
+        "mapId": "frost",
+        "mode": "classic",
+        "seed": "boss-sim-303",
+        "result": "bossDefeated",
+        "time": 570.65,
+        "steps": 34239,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 4,
+        "winnerIds": [
+          "a10"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 9844.8,
+        "damageByWeapon": {
+          "classic": 86148.44,
+          "melee": 93851.56
+        },
+        "deathsByWeapon": {
+          "classic": 1,
+          "melee": 3
+        }
+      },
+      {
+        "mapId": "frost",
+        "mode": "melee",
+        "seed": "boss-sim-101",
+        "result": "bossDefeated",
+        "time": 575.43,
+        "steps": 34526,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 5,
+        "winnerIds": [
+          "a10"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 8647.5,
+        "damageByWeapon": {
+          "classic": 82194.21,
+          "melee": 97805.79
+        },
+        "deathsByWeapon": {
+          "classic": 1,
+          "melee": 4
+        }
+      },
+      {
+        "mapId": "frost",
+        "mode": "melee",
+        "seed": "boss-sim-202",
+        "result": "bossDefeated",
+        "time": 586.37,
+        "steps": 35182,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 10,
+        "winnerIds": [
+          "a9"
+        ],
+        "winnerModes": {
+          "classic": 1,
+          "melee": 0
+        },
+        "wallMs": 9292.3,
+        "damageByWeapon": {
+          "classic": 83707.27,
+          "melee": 96292.73
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 10
+        }
+      },
+      {
+        "mapId": "frost",
+        "mode": "melee",
+        "seed": "boss-sim-303",
+        "result": "bossDefeated",
+        "time": 580.07,
+        "steps": 34804,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 6,
+        "winnerIds": [
+          "a2"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 9137.3,
+        "damageByWeapon": {
+          "classic": 73471.84,
+          "melee": 106528.16
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 6
+        }
+      },
+      {
+        "mapId": "swamp",
+        "mode": "classic",
+        "seed": "boss-sim-101",
+        "result": "bossDefeated",
+        "time": 558.08,
+        "steps": 33485,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 7,
+        "winnerIds": [
+          "a10"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 7865.6,
+        "damageByWeapon": {
+          "classic": 76073.15,
+          "melee": 103926.86
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 7
+        }
+      },
+      {
+        "mapId": "swamp",
+        "mode": "classic",
+        "seed": "boss-sim-202",
+        "result": "bossDefeated",
+        "time": 556.77,
+        "steps": 33406,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 2,
+        "winnerIds": [
+          "a5"
+        ],
+        "winnerModes": {
+          "classic": 1,
+          "melee": 0
+        },
+        "wallMs": 10154.7,
+        "damageByWeapon": {
+          "classic": 89385.27,
+          "melee": 90614.73
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 2
+        }
+      },
+      {
+        "mapId": "swamp",
+        "mode": "classic",
+        "seed": "boss-sim-303",
+        "result": "bossDefeated",
+        "time": 589.88,
+        "steps": 35393,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 1,
+        "winnerIds": [
+          "a10"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 11715.2,
+        "damageByWeapon": {
+          "classic": 81971.47,
+          "melee": 98028.53
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 1
+        }
+      },
+      {
+        "mapId": "swamp",
+        "mode": "melee",
+        "seed": "boss-sim-101",
+        "result": "bossDefeated",
+        "time": 575.8,
+        "steps": 34548,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 8,
+        "winnerIds": [
+          "a4"
+        ],
+        "winnerModes": {
+          "classic": 1,
+          "melee": 0
+        },
+        "wallMs": 9745.8,
+        "damageByWeapon": {
+          "classic": 82117.22,
+          "melee": 97882.78
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 8
+        }
+      },
+      {
+        "mapId": "swamp",
+        "mode": "melee",
+        "seed": "boss-sim-202",
+        "result": "bossDefeated",
+        "time": 577.73,
+        "steps": 34664,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 0,
+        "winnerIds": [
+          "a4"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 16186.6,
+        "damageByWeapon": {
+          "classic": 87879.08,
+          "melee": 92120.92
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 0
+        }
+      },
+      {
+        "mapId": "swamp",
+        "mode": "melee",
+        "seed": "boss-sim-303",
+        "result": "bossDefeated",
+        "time": 536.07,
+        "steps": 32164,
+        "bossHp": 0,
+        "totalDamage": 180000,
+        "deaths": 6,
+        "winnerIds": [
+          "a0"
+        ],
+        "winnerModes": {
+          "classic": 0,
+          "melee": 1
+        },
+        "wallMs": 19724.2,
+        "damageByWeapon": {
+          "classic": 80042.55,
+          "melee": 99957.45
+        },
+        "deathsByWeapon": {
+          "classic": 0,
+          "melee": 6
+        }
+      }
+    ],
+    "summary": {
+      "runs": 24,
+      "modes": [
+        "classic",
+        "melee"
+      ],
+      "maps": [
+        "courtyard",
+        "desert",
+        "frost",
+        "swamp"
+      ],
+      "seeds": [
+        "boss-sim-101",
+        "boss-sim-202",
+        "boss-sim-303"
+      ],
+      "configuration": {
+        "hz": 60,
+        "bossHp": 180000,
+        "basicDamageMultipliers": {
+          "classic": 2,
+          "melee": 1
+        },
+        "skillDamageMultipliers": {
+          "classic": 0.95,
+          "melee": 1
+        },
+        "nearGuardRadius": 160,
+        "nearGuardReduction": 0.2
+      },
+      "resultCounts": {
+        "bossDefeated": 24,
+        "timeLimit": 0
+      },
+      "averageTime": 572.52,
+      "totalDeaths": 99,
+      "byMatchMode": {
+        "classic": {
+          "runs": 12,
+          "averageTime": 570.11,
+          "damageByWeapon": {
+            "classic": 1021002.22,
+            "melee": 1138997.79
+          },
+          "winnerCountByWeapon": {
+            "classic": 5,
+            "melee": 7
+          },
+          "deathsByWeapon": {
+            "classic": 2,
+            "melee": 36
+          }
+        },
+        "melee": {
+          "runs": 12,
+          "averageTime": 574.92,
+          "damageByWeapon": {
+            "classic": 976382.82,
+            "melee": 1183617.18
+          },
+          "winnerCountByWeapon": {
+            "classic": 3,
+            "melee": 9
+          },
+          "deathsByWeapon": {
+            "classic": 5,
+            "melee": 56
+          }
+        }
+      },
+      "byMap": {
+        "courtyard": {
+          "runs": 6,
+          "averageTime": 583.89,
+          "damageByWeapon": {
+            "classic": 499896.14,
+            "melee": 580103.86
+          },
+          "winnerCountByWeapon": {
+            "classic": 2,
+            "melee": 4
+          }
+        },
+        "desert": {
+          "runs": 6,
+          "averageTime": 565.16,
+          "damageByWeapon": {
+            "classic": 511223.11,
+            "melee": 568776.89
+          },
+          "winnerCountByWeapon": {
+            "classic": 3,
+            "melee": 3
+          }
+        },
+        "frost": {
+          "runs": 6,
+          "averageTime": 575.29,
+          "damageByWeapon": {
+            "classic": 488797.05,
+            "melee": 591202.95
+          },
+          "winnerCountByWeapon": {
+            "classic": 1,
+            "melee": 5
+          }
+        },
+        "swamp": {
+          "runs": 6,
+          "averageTime": 565.72,
+          "damageByWeapon": {
+            "classic": 497468.74,
+            "melee": 582531.27
+          },
+          "winnerCountByWeapon": {
+            "classic": 2,
+            "melee": 4
+          }
+        }
+      },
+      "summary": {
+        "classic": {
+          "runs": 24,
+          "totalDamage": 1997385.04,
+          "averageDamagePerRun": 83224.38,
+          "winnerCount": 8,
+          "deaths": 7
+        },
+        "melee": {
+          "runs": 24,
+          "totalDamage": 2322614.97,
+          "averageDamagePerRun": 96775.62,
+          "winnerCount": 16,
+          "deaths": 92
+        }
+      }
+    }
+  },
+  "baseline": {
+    "oldCommit": "98c9dd74057fb26d383dbace5e1d87b5b7aa5cf6",
+    "ignoredFields": [
+      "trapDamageTimer",
+      "effects",
+      "hitFlash",
+      "meleeVisuals"
+    ],
+    "ignoredDuplicateReference": "nested ai.map omitted; root map retained",
+    "firstDifferences": [
+      {
+        "mode": "classic",
+        "seed": "sim-101",
+        "step": 8022,
+        "time": 133.69999999999854,
+        "monsterDamage": [
+          {
+            "id": 616,
+            "oldHp": 24,
+            "newHp": 16,
+            "oldTimer": 0.21666666666666634,
+            "newTimer": 0.65
+          }
+        ]
+      },
+      {
+        "mode": "classic",
+        "seed": "sim-202",
+        "step": 7862,
+        "time": 131.03333333332975,
+        "monsterDamage": [
+          {
+            "id": 577,
+            "oldHp": 24,
+            "newHp": 16,
+            "oldTimer": 0.5833333333333331,
+            "newTimer": 0.65
+          }
+        ]
+      },
+      {
+        "mode": "classic",
+        "seed": "sim-303",
+        "step": 7512,
+        "time": 125.19999999999418,
+        "monsterDamage": [
+          {
+            "id": 577,
+            "oldHp": 32,
+            "newHp": 24,
+            "oldTimer": 0.5666666666666664,
+            "newTimer": 0.65
+          }
+        ]
+      },
+      {
+        "mode": "classic",
+        "seed": "sim-404",
+        "step": 2856,
+        "time": 47.59999999999858,
+        "monsterDamage": [
+          {
+            "id": 342,
+            "oldHp": 18.6,
+            "newHp": 10.600000000000001,
+            "oldTimer": 0.43333333333333296,
+            "newTimer": 0.65
+          }
+        ]
+      },
+      {
+        "mode": "melee",
+        "seed": "sim-101",
+        "step": 4192,
+        "time": 69.86666666666399,
+        "monsterDamage": [
+          {
+            "id": 430,
+            "oldHp": 24,
+            "newHp": 16,
+            "oldTimer": 0.29999999999999966,
+            "newTimer": 0.65
+          }
+        ]
+      },
+      {
+        "mode": "melee",
+        "seed": "sim-202",
+        "step": 1369,
+        "time": 22.816666666666652,
+        "monsterDamage": [
+          {
+            "id": 202,
+            "oldHp": 32,
+            "newHp": 24,
+            "oldTimer": 0.4666666666666663,
+            "newTimer": 0.65
+          }
+        ]
+      },
+      {
+        "mode": "melee",
+        "seed": "sim-303",
+        "step": 1777,
+        "time": 29.616666666666266,
+        "monsterDamage": [
+          {
+            "id": 311,
+            "oldHp": 24,
+            "newHp": 16,
+            "oldTimer": 0.1499999999999997,
+            "newTimer": 0.65
+          }
+        ]
+      },
+      {
+        "mode": "melee",
+        "seed": "sim-404",
+        "step": 904,
+        "time": 15.066666666666995,
+        "monsterDamage": [
+          {
+            "id": 256,
+            "oldHp": 32,
+            "newHp": 24,
+            "oldTimer": 0.24999999999999967,
+            "newTimer": 0.65
+          }
+        ]
+      }
+    ],
+    "baselineChanges": [
+      {
+        "key": "classic:sim-101",
+        "old": {
+          "steps": 28933,
+          "time": 482.217,
+          "winner": "a11",
+          "marks": 483
+        },
+        "current": {
+          "steps": 28918,
+          "time": 481.967,
+          "winner": "a11",
+          "marks": 482
+        }
+      },
+      {
+        "key": "classic:sim-202",
+        "old": {
+          "steps": 36379,
+          "time": 606.317,
+          "winner": "a2",
+          "marks": 607
+        },
+        "current": {
+          "steps": 34213,
+          "time": 570.217,
+          "winner": "a5",
+          "marks": 571
+        }
+      },
+      {
+        "key": "classic:sim-303",
+        "old": {
+          "steps": 26995,
+          "time": 449.917,
+          "winner": "a3",
+          "marks": 450
+        },
+        "current": {
+          "steps": 24233,
+          "time": 403.883,
+          "winner": "a3",
+          "marks": 404
+        }
+      },
+      {
+        "key": "classic:sim-404",
+        "old": {
+          "steps": 29242,
+          "time": 487.367,
+          "winner": "a3",
+          "marks": 488
+        },
+        "current": {
+          "steps": 32835,
+          "time": 547.25,
+          "winner": "a4",
+          "marks": 548
+        }
+      },
+      {
+        "key": "melee:sim-101",
+        "old": {
+          "steps": 34071,
+          "time": 567.85,
+          "winner": "a1",
+          "marks": 568
+        },
+        "current": {
+          "steps": 26467,
+          "time": 441.117,
+          "winner": "a2",
+          "marks": 442
+        }
+      },
+      {
+        "key": "melee:sim-202",
+        "old": {
+          "steps": 28442,
+          "time": 474.033,
+          "winner": "a5",
+          "marks": 475
+        },
+        "current": {
+          "steps": 23321,
+          "time": 388.683,
+          "winner": "a4",
+          "marks": 389
+        }
+      },
+      {
+        "key": "melee:sim-303",
+        "old": {
+          "steps": 14018,
+          "time": 233.633,
+          "winner": "a2",
+          "marks": 234
+        },
+        "current": {
+          "steps": 20254,
+          "time": 337.567,
+          "winner": "a7",
+          "marks": 338
+        }
+      },
+      {
+        "key": "melee:sim-404",
+        "old": {
+          "steps": 11209,
+          "time": 186.817,
+          "winner": "a0",
+          "marks": 187
+        },
+        "current": {
+          "steps": 21776,
+          "time": 362.933,
+          "winner": "a8",
+          "marks": 363
+        }
+      }
+    ],
+    "oldTotalMarks": 3492,
+    "newTotalMarks": 3537
+  },
+  "browser": {
+    "surface": "Codex IAB, actual DOM and native keyboard",
+    "passed": [
+      "Space activates start",
+      "Help moves focus and makes background inert",
+      "Tab stays inside help",
+      "Escape closes once and restores running state and opener focus",
+      "Space activates help done and preserves previously paused state",
+      "Boss descriptions show 6 XP per 10 seconds and 7.5 XP crystals",
+      "Synchronous old-card double click consumes one choice with different next skill",
+      "Synchronous old-card double click consumes one choice with same next skill",
+      "Fresh next card accepts numeric key selection"
+    ],
+    "finalChoiceFlowNewWarningsOrErrors": 0,
+    "fixture": "Temporary isolated server prepared two pending choices; its controls used actual application cards. Not a natural full match, not included in dist."
+  },
+  "limitations": [
+    "Performance measures local simulation without browser drawing, not device FPS.",
+    "Boss results are fixed all-AI samples, not human win rates.",
+    "Spike timing changes gameplay: eight baseline durations and six winners changed; baseline was reviewed before replacement."
+  ],
+  "publication": "Recorded separately in docs/VALIDATION.md after platform confirmation."
+}

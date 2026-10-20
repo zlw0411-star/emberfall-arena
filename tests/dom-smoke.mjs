@@ -1,6 +1,9 @@
 // DOM 冒烟测试：模拟全等不覆盖 app.js / renderer.js 的 DOM 路径，
 // 这里用一个最小 DOM + Canvas mock 把真实入口跑起来，抓运行时错误。
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const indexHtml = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8');
 
 const errors = [];
 const calls = { fillRect: 0, arc: 0, fillText: 0, stroke: 0, drawImage: 0 };
@@ -35,11 +38,34 @@ function makeCtx() {
   });
 }
 
+let choiceCardSerial = 0;
+function nodeList(items) {
+  return Object.assign({ length: items.length, item: index => items[index] ?? null,
+    forEach: items.forEach.bind(items), entries: items.entries.bind(items),
+    keys: items.keys.bind(items), values: items.values.bind(items),
+    [Symbol.iterator]: items[Symbol.iterator].bind(items) }, items);
+}
+function addChoiceCards(container, html) {
+  for (const [, attributes, content] of html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)) {
+    const card = makeElement(`choice-${++choiceCardSerial}`);
+    card.tagName = 'BUTTON';
+    for (const [, name, value] of attributes.matchAll(/([\w-]+)="([^"]*)"/g)) card.setAttribute(name, value);
+    card._innerHTML = content;
+    card.textContent = content.replace(/<[^>]*>/g, '');
+    container.appendChild(card);
+  }
+}
+
+function markButton(element) {
+  element.tagName = 'BUTTON';
+  return element;
+}
+
 // 元素注册表：任何 id 都能拿到一个可用的伪元素
 const elements = new Map();
 function makeElement(id = '') {
   const el = {
-    id, dataset: {}, style: {}, classList: {
+    id, tagName: 'DIV', disabled: false, dataset: {}, style: {}, classList: {
       _set: new Set(),
       add(c) { this._set.add(c); }, remove(c) { this._set.delete(c); },
       toggle(c, on) { if (on === undefined) { this._set.has(c) ? this._set.delete(c) : this._set.add(c); } else if (on) this._set.add(c); else this._set.delete(c); },
@@ -51,35 +77,58 @@ function makeElement(id = '') {
     get innerHTML() { return this._innerHTML + this.children.map(child => child.outerHTML).join(''); },
     set innerHTML(value) {
       for (const child of [...this.children]) child.remove();
-      this._innerHTML = value;
+      this._innerHTML = this.id === 'choices' ? '' : value;
+      if (this.id === 'choices') addChoiceCards(this, value);
     },
     get outerHTML() {
-      const attributes = [...this._attributes];
-      if (this.className) attributes.push(['class', this.className]);
-      for (const [key, value] of Object.entries(this.dataset)) attributes.push([`data-${key}`, value]);
+      const attributes = new Map(this._attributes);
+      if (this.className) attributes.set('class', this.className);
+      for (const [key, value] of Object.entries(this.dataset)) attributes.set(`data-${key.replace(/[A-Z]/g, c => '-' + c.toLowerCase())}`, value);
       const tag = (this.tagName || 'div').toLowerCase();
-      return `<${tag}${attributes.map(([key, value]) => ` ${key}="${value}"`).join('')}>${this.innerHTML}</${tag}>`;
+      return `<${tag}${[...attributes].map(([key, value]) => ` ${key}="${value}"`).join('')}>${this.innerHTML}</${tag}>`;
     },
     width: 800, height: 600, clientWidth: 800, clientHeight: 600,
     _handlers: {},
     addEventListener(type, fn) { (this._handlers[type] ??= []).push(fn); },
     removeEventListener() {},
     dispatch(type, event = {}) {
-      const dispatched = event.type === type ? event : { type, target: this, defaultPrevented: false,
-        preventDefault() { this.defaultPrevented = true; }, ...event };
+      const target = event.target ?? this;
+      const dispatched = event.type === type ? event : { defaultPrevented: false,
+        preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.propagationStopped = true; },
+        ...event, type, target };
+      dispatched.defaultPrevented ??= false;
+      dispatched.preventDefault ??= function preventDefault() { this.defaultPrevented = true; };
+      dispatched.stopPropagation ??= function stopPropagation() { this.propagationStopped = true; };
+      dispatched.target = target;
       for (const fn of this._handlers[type] ?? []) fn(dispatched);
       const handler = this[`on${type}`];
       if (typeof handler === 'function') handler(dispatched);
-      if (this.parentNode) this.parentNode.dispatch(type, dispatched);
+      if (this.parentNode && !dispatched.propagationStopped) {
+        this.parentNode.dispatch(type, dispatched);
+      }
       return dispatched;
     },
-    setAttribute(name, value) { this._attributes.set(name, String(value)); },
+    setAttribute(name, value) {
+      this._attributes.set(name, String(value));
+      if (name === 'class') this.className = String(value);
+      if (name.startsWith('data-')) this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = String(value);
+      if (name === 'tabindex') this.tabIndex = Number(value);
+    },
     getAttribute(name) {
-      if (name === 'class') return this.className;
-      if (name.startsWith('data-')) return this.dataset[name.slice(5)] ?? null;
+    if (name === 'class') return this.className;
+      if (name === 'data-choice-id') return this.dataset.choiceId ?? null;
+      if (name === 'data-choice-version') return this.dataset.choiceVersion ?? null;
+      if (name === 'type') return this._attributes.get(name) ?? null;
+      if (name === 'role') return this._attributes.get(name) ?? null;
+      if (name === 'tabindex' && this._tabIndex !== undefined) return String(this.tabIndex);
+      if (name.startsWith('data-')) return this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] ?? null;
       return this._attributes.get(name) ?? null;
     },
-    removeAttribute(name) { this._attributes.delete(name); },
+    removeAttribute(name) {
+      this._attributes.delete(name);
+      if (name.startsWith('data-')) delete this.dataset[name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())];
+      if (name === 'tabindex') delete this._tabIndex;
+    },
     appendChild(child) { return this.insertBefore(child, null); },
     insertBefore(child, reference) {
       if (child === reference) return child;
@@ -88,26 +137,39 @@ function makeElement(id = '') {
       assert.ok(index >= 0, 'insertBefore 的参照节点必须属于容器');
       this.children.splice(index, 0, child);
       child.parentNode = this;
+      child.isConnected = this.isConnected;
       return child;
     },
     remove() {
       if (this.contains(globalThis.document?.activeElement)) document.activeElement = document.body;
       if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
       this.parentNode = null;
+      this.isConnected = false;
     },
     contains(node) { return node != null && (node === this || this.children.some(child => child.contains(node))); },
     focus() { document.activeElement = this; },
     blur() { if (document.activeElement === this) document.activeElement = document.body; },
-    click() { this.dispatch('click'); },
+    click() { if (!this.disabled) this.dispatch('click'); },
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }),
+    get tabIndex() { return this._tabIndex ?? (this.tagName === 'BUTTON' ? 0 : -1); },
+    set tabIndex(value) { this._tabIndex = Number(value); this._attributes.set('tabindex', String(value)); },
+    get inert() { return this._inert ?? false; },
+    set inert(value) {
+      this._inert = Boolean(value);
+      if (this._inert) this._attributes.set('inert', '');
+      else this._attributes.delete('inert');
+      if (this._inert && this.contains(document.activeElement)) document.activeElement = document.body;
+    },
     matches(selector) {
       const attribute = selector.match(/^\[([\w-]+)(?:="([^"]*)")?\]$/);
       if (attribute) return this.getAttribute(attribute[1]) !== null
         && (attribute[2] === undefined || this.getAttribute(attribute[1]) === attribute[2]);
+      if (selector === '[role="button"]') return this.getAttribute('role') === 'button';
+      if (selector === 'button') return this.tagName === 'BUTTON';
       return selector.startsWith('.') && this.classList.contains(selector.slice(1));
     },
     querySelectorAll(selector) {
-      return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]);
+      return nodeList(this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]));
     },
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
     closest(selector) { return this.matches(selector) ? this : this.parentNode?.closest(selector) || null; },
@@ -116,7 +178,7 @@ function makeElement(id = '') {
     setPointerCapture(id) { this._captures.add(id); },
     releasePointerCapture(id) { this._captures.delete(id); },
     hasPointerCapture(id) { return this._captures.has(id); },
-    tabIndex: 0,
+    isConnected: true,
   };
   elements.set(id, el);
   return el;
@@ -129,6 +191,7 @@ const mapCards = new Map();
 function makeWeaponCard(weapon) {
   if (!weaponCards.has(weapon)) {
     const card = makeElement(`weapon-card-${weapon}`);
+    card.tagName = 'BUTTON';
     card.dataset.weapon = weapon;
     weaponCards.set(weapon, card);
   }
@@ -137,6 +200,7 @@ function makeWeaponCard(weapon) {
 function makeMapCard(mapId) {
   if (!mapCards.has(mapId)) {
     const card = makeElement(`map-card-${mapId}`);
+    card.tagName = 'BUTTON';
     card.dataset.map = mapId;
     mapCards.set(mapId, card);
   }
@@ -145,6 +209,7 @@ function makeMapCard(mapId) {
 function makeModeCard(mode) {
   if (!modeCards.has(mode)) {
     const card = makeElement(`mode-card-${mode}`);
+    card.tagName = 'BUTTON';
     card.dataset.mode = mode;
     modeCards.set(mode, card);
   }
@@ -154,10 +219,10 @@ function makeModeCard(mode) {
 globalThis.document = {
   getElementById(id) { return elements.get(id) ?? makeElement(id); },
   querySelectorAll(selector) {
-    if (selector === '[data-mode]') return [...modeCards.values()];
-    if (selector === '[data-weapon]') return [...weaponCards.values()];
-    if (selector === '[data-map]') return [...mapCards.values()];
-    return [];
+    if (selector === '[data-mode]') return nodeList([...modeCards.values()]);
+    if (selector === '[data-weapon]') return nodeList([...weaponCards.values()]);
+    if (selector === '[data-map]') return nodeList([...mapCards.values()]);
+    return nodeList([]);
   },
   querySelector: () => null,
   createElement(tag) {
@@ -172,15 +237,67 @@ globalThis.document = {
   hidden: false,
 };
 document.activeElement = document.body;
+document.getElementById('body').isConnected = true;
+document.getElementById('game-shell').isConnected = true;
+document.getElementById('help-button').isConnected = true;
+document.getElementById('start-button').isConnected = true;
+document.getElementById('help-overlay')._innerHTML = '';
+document.getElementById('help-overlay').classList.add('hidden');
+const helpDialog = makeElement('created-help-dialog');
+helpDialog.className = 'help-dialog';
+document.getElementById('help-overlay').appendChild(helpDialog);
+const app = document.getElementById('app');
+app.appendChild(document.getElementById('game-shell'));
+app.appendChild(document.getElementById('help-button'));
+app.appendChild(document.getElementById('start-button'));
+for (const id of [
+  'sound-button', 'help-button', 'pause-button', 'start-button', 'resume-button',
+  'restart-pause', 'menu-pause', 'restart-death', 'menu-death', 'spectate-button',
+  'restart-result', 'menu-result', 'close-help', 'help-done',
+]) {
+  document.getElementById(id).tagName = 'BUTTON';
+  document.getElementById(id).setAttribute('type', 'button');
+}
+helpDialog.appendChild(document.getElementById('close-help'));
+helpDialog.appendChild(document.getElementById('help-done'));
+
 globalThis.window = {
   _handlers: {},
   addEventListener(type, fn) { (this._handlers[type] ??= []).push(fn); },
   removeEventListener() {},
-  dispatch(type, event = {}) { for (const fn of this._handlers[type] ?? []) fn({ preventDefault() {}, ...event }); },
+  dispatch(type, event = {}) {
+    const target = event.target ?? document.activeElement ?? document.body;
+    const dispatched = {
+      defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; },
+      stopPropagation() { this.propagationStopped = true; },
+      ...event,
+      type,
+      target,
+    };
+    if (!dispatched.propagationStopped && typeof target.dispatch === 'function') target.dispatch(type, dispatched);
+    if (!dispatched.propagationStopped) {
+      for (const fn of this._handlers[type] ?? []) fn(dispatched);
+    }
+    // 浏览器默认行为：未被取消的 Space/Enter 激活原生按钮。
+    if (type === 'keydown' && !dispatched.defaultPrevented
+      && [' ', 'Spacebar', 'Enter'].includes(dispatched.key)
+      && dispatched.target?.tagName === 'BUTTON') {
+      dispatched.target.dispatch('click');
+    }
+    return dispatched;
+  },
   devicePixelRatio: 1,
   requestAnimationFrame: () => 0, cancelAnimationFrame() {},
   focus() {},
 };
+helpDialog.remove();
+document.getElementById('close-help').remove();
+document.getElementById('help-done').remove();
+document.getElementById('help-overlay').appendChild(helpDialog);
+helpDialog.appendChild(document.getElementById('close-help'));
+helpDialog.appendChild(document.getElementById('help-done'));
+globalThis.window.document = document;
 // 捕获 rAF 回调，改由本脚本手动推进，从而真实跑主循环。
 let pendingFrame = null;
 globalThis.requestAnimationFrame = (cb) => { pendingFrame = cb; return 1; };
@@ -429,6 +546,181 @@ scenario('随机地图：显示实际地图且菜单保留随机选项', () => {
 click('menu-pause');
 makeMapCard('courtyard').dispatch('click');
 
+scenario('A01 选技卡过期事件按技能 ID 和选项版本拒绝，交错的下一张仍保留', () => {
+  const game = startMode('classic');
+  game.rng = () => 0; // 下一轮固定首项为火球，隔离随机夹具波动。
+  game.monsters = []; game.gems = [];
+  const player = game.actors[0];
+  player.pendingChoices = 2;
+  player.choices = ['power', 'vitality', 'focus'];
+  debug.state.choiceKey = '';
+  pumpFrames(8);
+  const choices = document.getElementById('choices');
+  const oldCard = choices.querySelector('[data-choice-id]');
+  assert.equal(oldCard?.dataset.choiceId, 'power', 'HTML 必须写出可校验的技能 ID');
+  oldCard.click();
+  assert.equal(player.skills.power, 1);
+  assert.equal(player.pendingChoices, 1);
+  assert.notEqual(player.choices[0], 'power', '测试夹具需要让下一张与旧卡不同');
+  const nextSkill = player.choices[0];
+  oldCard.click();
+  window.dispatch('keydown', { key: '1', target: oldCard });
+  assert.equal(player.skills.power, 1, '旧 DOM 点击不得消费尚未显示的新选项');
+  assert.equal(player.skills[nextSkill] || 0, 0, '旧 DOM 数字键也不得消费新选项');
+  assert.equal(player.pendingChoices, 1, '过期事件后待选队列必须保留');
+  assert.equal(game.paused, false, '保留选技不停战');
+  pumpFrames(8);
+  const freshCard = choices.querySelector('[data-choice-id]');
+  assert.equal(freshCard?.dataset.choiceId, nextSkill);
+  window.dispatch('keydown', { key: '1' });
+  assert.equal(player.skills[nextSkill] || 0, 1, '刷新后的新卡仍可通过数字键选择');
+  assert.equal(player.pendingChoices, 0);
+});
+
+scenario('A01 同技能同槽位由选项版本区分，旧点击和数字键都失效', () => {
+  const game = startMode('classic');
+  game.monsters = []; game.gems = [];
+  const player = game.actors[0];
+  player.pendingChoices = 2;
+  player.choices = ['power', 'precision', 'focus'];
+  debug.state.choiceKey = '';
+  pumpFrames(8);
+  const choices = document.getElementById('choices');
+  const oldSlot = choices.querySelector('[data-choice="0"]');
+  const oldVersion = Number(oldSlot.dataset.choiceVersion);
+  oldSlot.click();
+  assert.equal(player.pendingChoices, 1);
+  assert.equal(Number(debug.state.choiceVersion), oldVersion + 1, '成功选择必须立即推进版本');
+  const expiredAfterChoice = oldSlot;
+  expiredAfterChoice.dataset.choiceVersion = String(oldVersion);
+
+  player.choices = ['power', 'vitality', 'focus'];
+  debug.state.choiceKey = '';
+  pumpFrames(8);
+  const freshSlot = choices.querySelector('[data-choice="0"]');
+  assert.equal(freshSlot.dataset.choiceId, 'power');
+  assert.notEqual(freshSlot.dataset.choiceVersion, expiredAfterChoice.dataset.choiceVersion);
+  expiredAfterChoice.click();
+  assert.equal(player.skills.power || 0, 1, '同 ID 的旧事件仍须被版本拒绝');
+  assert.equal(player.pendingChoices, 1);
+  freshSlot.click();
+  assert.equal(player.skills.power, 2, '当前版本的同技能卡仍可强化');
+  assert.equal(player.pendingChoices, 0);
+});
+
+scenario('A02 帮助层锁焦、背景 inert、幂等打开并恢复原暂停态', () => {
+  let game = startMode('classic');
+  game.monsters = []; game.gems = [];
+  const help = document.getElementById('help-overlay');
+  const shell = document.getElementById('game-shell');
+  const helpButton = document.getElementById('help-button');
+  helpButton.focus();
+  helpButton.click();
+  assert.equal(hidden('help-overlay'), false);
+  assert.equal(game.paused, true);
+  assert.equal(document.getElementById('app').inert, true, '帮助显示时背景必须 inert');
+  assert.equal(document.getElementById('app').getAttribute('inert'), '', '背景容器 must expose inert attribute');
+  assert.equal(help.contains(document.activeElement), true, '焦点必须移入帮助模态');
+  const close = document.getElementById('close-help');
+  for (let i = 0; i < 8; i++) {
+    window.dispatch('keydown', { key: 'Tab', shiftKey: i % 2 === 1 });
+    assert.equal(help.contains(document.activeElement), true, 'Tab/Shift+Tab 必须留在帮助层');
+  }
+  helpButton.dispatch('click');
+  assert.equal(game.paused, true, '重复打开不能覆盖原始暂停态');
+  const escape = window.dispatch('keydown', { key: 'Escape', target: document.activeElement, bubbling: true });
+  assert.equal(hidden('help-overlay'), true);
+  assert.equal(game.paused, false, '此前未暂停时关闭帮助应恢复运行');
+  assert.equal(escape.defaultPrevented, true);
+  assert.equal(escape.propagationStopped, true, '帮助已处理 Escape 后不得再次触发全局暂停');
+  assert.equal(game.paused, false, '冒泡到全局后不能再次切换暂停');
+  assert.equal(document.getElementById('app').inert, false);
+  assert.equal(document.activeElement, helpButton, '关闭后必须恢复打开者焦点');
+
+  click('pause-button');
+  assert.equal(game.paused, true);
+  helpButton.click();
+  helpButton.click();
+  close.click();
+  assert.equal(game.paused, true, '打开帮助前已暂停时必须保持暂停');
+  assert.equal(hidden('pause-overlay'), false, '关闭帮助后应恢复原暂停浮层');
+  click('resume-button');
+
+  game.time = CONFIG.matchLimit - 0.05;
+  pumpFrames(8);
+  assert.ok(game.result, '夹具应到达结算');
+  helpButton.click();
+  assert.equal(hidden('help-overlay'), false);
+  assert.equal(game.paused, false, '结算状态不能因帮助打开而变成运行时暂停');
+  close.click();
+  assert.equal(hidden('help-overlay'), true);
+  click('menu-result');
+  pumpFrames(8);
+  helpButton.focus();
+  helpButton.click();
+  assert.equal(game === debug.state.game, false);
+  close.click();
+  assert.equal(document.activeElement, helpButton);
+});
+
+scenario('A03 原生按钮空格不被吞，帮助显示时游戏键隔离，战场方向键仍防滚动', () => {
+  click('menu-pause');
+  makeModeCard('melee').dispatch('click');
+  const start = document.getElementById('start-button');
+  start.focus();
+  document.activeElement = start;
+  const event = window.dispatch('keydown', { key: ' ' });
+  assert.equal(event.defaultPrevented, false, '原生按钮空格应保留默认激活');
+  assert.equal(debug.state.started, true, '空格应启动对局');
+  $game.focus();
+  const arrow = window.dispatch('keydown', { key: 'ArrowDown' });
+  assert.equal(arrow.defaultPrevented, true, '战场方向键仍需防止页面滚动');
+  const helpButton = document.getElementById('help-button');
+  helpButton.focus();
+  helpButton.click();
+  const game = debug.state.game;
+  const beforeTime = game.time;
+  const q = window.dispatch('keydown', { key: 'q', target: document.getElementById('close-help') });
+  assert.equal(q.defaultPrevented, false, '原生按钮上的 Q 不应被游戏全局处理器吞掉');
+  assert.equal(debug.state.castSlot, -1, '帮助显示时 Q 不得排队施法');
+  pumpFrames(8);
+  assert.equal(game.time, beforeTime, '帮助显示时模拟保持暂停');
+  click('close-help');
+  assert.equal(hidden('help-overlay'), true);
+});
+
+scenario('A02/A03 帮助完成按钮空格可原生关闭，背景仍不恢复', () => {
+  const game = startMode('classic');
+  game.monsters = []; game.gems = [];
+  const helpButton = document.getElementById('help-button');
+  helpButton.click();
+  const done = document.getElementById('help-done');
+  done.focus();
+  const space = window.dispatch('keydown', { key: ' ' });
+  assert.equal(space.defaultPrevented, false, '帮助按钮空格必须保留默认激活');
+  assert.equal(hidden('help-overlay'), true, '空格应通过原生按钮默认行为关闭帮助');
+  assert.equal(game.paused, false);
+  click('menu-pause');
+});
+
+scenario('A07 首领参战经验和晶体说明来自运行配置，HTML 具备模态语义', () => {
+  const liveConfig = CONFIG;
+  const participation = BOSS_CONFIG.participationXp * BOSS_CONFIG.xpMultiplier;
+  const mapGem = liveConfig.mapGemXp * BOSS_CONFIG.xpMultiplier;
+  assert.equal(participation, 6);
+  assert.equal(mapGem, 7.5);
+  assert.match(indexHtml, /id="boss-participation-xp"/);
+  assert.match(indexHtml, /id="boss-map-gem-xp"/);
+  assert.match(indexHtml, /id="help-overlay"[^>]*role="dialog"[^>]*aria-modal="true"/);
+  startBoss('classic');
+  pumpFrames(8);
+  assert.equal(document.getElementById('boss-participation-xp').textContent, String(participation));
+  assert.equal(document.getElementById('boss-map-gem-xp').textContent, String(mapGem));
+  assert.equal(document.getElementById('help-participation-xp').textContent, String(participation));
+  assert.equal(document.getElementById('help-map-gem-xp').textContent, String(mapGem));
+  click('menu-pause');
+});
+
 for (const mode of ['classic', 'melee']) {
   scenario(`${mode}: 新技能卡选择不停战、键盘施放与护盾HUD`, () => {
     const game = startMode(mode);
@@ -443,7 +735,7 @@ for (const mode of ['classic', 'melee']) {
       assert.equal(game.paused, false);
       const before = { time: game.time, x: player.x, y: player.y };
       window.dispatch('keydown', { key: 'd' });
-      document.getElementById('choices').dispatch('click', { target: { closest: () => ({ dataset: { choice: '0' } }) } });
+      document.getElementById('choices').querySelector('[data-choice="0"]').click();
       pumpFrames(8);
       window.dispatch('keyup', { key: 'd' });
       assert.ok(game.time > before.time, '选择技能不能暂停模拟');
@@ -498,8 +790,11 @@ for (const mode of ['classic', 'melee']) {
     assert.equal(debug.state.spectateId, living[0].id, '死亡后自动跟随存活旅者');
     click('spectate-button');
     assert.equal(debug.state.deathDismissed, true);
-    const row = { dataset: { actor: living[1].id } };
-    document.getElementById('roster').dispatch('click', { target: { closest: () => row } });
+    const roster = document.getElementById('roster');
+    const row = makeElement(`roster-row-${living[1].id}`);
+    row.dataset.actor = living[1].id;
+    roster.appendChild(row);
+    roster.dispatch('click', { target: row });
     const before = game.time;
     pumpFrames(16);
     assert.ok(game.time > before, '观战必须继续推进模拟');
@@ -781,7 +1076,7 @@ scenario('首领：选技不停战、真实死亡保留原卡、自动复活清�
   pumpFrames(8);
   assert.equal(hidden('choices'), false);
   const time = game.time;
-  document.getElementById('choices').dispatch('click', { target: { closest: () => ({ dataset: { choice: '0' } }) } });
+  document.getElementById('choices').querySelector('[data-choice="0"]').click();
   pumpFrames(8);
   assert.equal(player.skills.bladeWard, 1);
   assert.ok(game.time > time);
@@ -818,7 +1113,9 @@ scenario('首领：选技不停战、真实死亡保留原卡、自动复活清�
   assert.equal(hidden('choices'), false);
   assert.equal(player.pendingChoices, 1);
   assert.deepEqual(player.choices, cards);
-  assert.equal(document.getElementById('choices').innerHTML, cardHtml);
+  const restoredHtml = document.getElementById('choices').innerHTML;
+  const withoutOfferVersion = html => html.replace(/data-choice-version="\d+"/g, 'data-choice-version="offer"');
+  assert.equal(withoutOfferVersion(restoredHtml), withoutOfferVersion(cardHtml), '复活保留技能、等级、说明和卡片顺序，仅更新防过期版本');
   assert.ok(player.invulnerableUntil > game.time);
   assert.match(document.getElementById('footer-status').textContent, /重生保护/);
 });

@@ -190,13 +190,16 @@ export function createHud(state, actions) {
     const key = `${player.choices.join(',')}:${player.pendingChoices}`;
     if (key !== state.choiceKey) {
       state.choiceKey = key;
+      state.choiceVersion = (state.choiceVersion || 0) + 1;
+      $('choices').dataset.renderedChoices = player.choices.join(',');
+      $('choices').dataset.choiceVersion = String(state.choiceVersion);
       $('choices').innerHTML = player.choices.map((id, index) => {
         const def = skills[id];
         const rank = player.skills[id] || 0;
         const badge = rank
           ? `强化 ${rank} → ${rank + 1}`
           : def.type === 'active' ? '主动技能' : '被动强化';
-        return `<button class="choice-card" data-choice="${index}">`
+        return `<button class="choice-card" data-choice="${index}" data-choice-id="${id}" data-choice-version="${state.choiceVersion}">`
           + `<kbd>${index + 1}</kbd>`
           + `<span style="color:${def.color}">${def.icon}</span>`
           + `<h3>${def.name}<small class="choice-rank">${badge}</small></h3>`

@@ -10,6 +10,7 @@ import { MODES, normalizeMode } from './modes.js';
 import { BIOMES, biomeOf, normalizeBiome } from './biomes.js';
 import { $, show, beep, toast } from './dom.js';
 import { drawHero } from './renderer.js';
+import { BOSS_CONFIG } from './boss-config.js';
 
 /** 主菜单/结算里出现过、需要统一隐藏的浮层 id。 */
 const FLOW_OVERLAYS = ['start-overlay', 'pause-overlay', 'result-overlay', 'death-card', 'choices', 'zone-banner'];
@@ -90,6 +91,24 @@ export function createFlow(state, input, renderer, portraitCtx) {
     syncMap();
   }
 
+  function syncBossHelpValues() {
+    const participationXp = BOSS_CONFIG.participationXp * BOSS_CONFIG.xpMultiplier;
+    const mapGemXp = CONFIG.mapGemXp * BOSS_CONFIG.xpMultiplier;
+    for (const id of ['boss-participation-xp', 'boss-ranking-participation-xp', 'help-participation-xp']) {
+      $(id).textContent = String(participationXp);
+    }
+    for (const id of ['boss-map-gem-xp', 'boss-ranking-map-gem-xp', 'help-map-gem-xp']) {
+      $(id).textContent = String(mapGemXp);
+    }
+    for (const id of ['boss-participation-interval', 'boss-ranking-participation-interval', 'help-participation-interval']) {
+      $(id).textContent = String(BOSS_CONFIG.xpInterval);
+    }
+    $('help-boss-spawn').textContent = String(BOSS_CONFIG.spawnAt);
+    $('help-boss-minutes').textContent = String(BOSS_CONFIG.timeLimit / 60);
+    $('help-guard-radius').textContent = String(BOSS_CONFIG.nearGuardRadius);
+    $('help-guard-reduction').textContent = String(Math.round(BOSS_CONFIG.nearGuardReduction * 100));
+  }
+
   function selectMode(mode) {
     if (state.started) return;
     state.selectedRuleset = mode === 'boss' ? 'boss' : 'arena';
@@ -104,6 +123,7 @@ export function createFlow(state, input, renderer, portraitCtx) {
   // ---- 开始 / 重开 ------------------------------------------------------
 
   function begin() {
+    if (state.helpOpen) closeHelp();
     input.clearInput();
     state.game = createGame(Date.now(), options());
     state.started = true;
@@ -126,6 +146,8 @@ export function createFlow(state, input, renderer, portraitCtx) {
   }
 
   function returnMenu() {
+    const helpWasOpen = state.helpOpen;
+    if (helpWasOpen) closeHelp();
     state.selectedMode = state.game.mode;
     state.selectedRuleset = state.game.ruleset || 'arena';
     input.clearInput();
@@ -149,6 +171,7 @@ export function createFlow(state, input, renderer, portraitCtx) {
   // ---- 暂停 -------------------------------------------------------------
 
   function pause(yes) {
+    if (state.helpOpen) return;
     if (!state.started || state.game.result) return;
     state.game.paused = yes;
     input.clearInput();
@@ -156,33 +179,117 @@ export function createFlow(state, input, renderer, portraitCtx) {
     setPauseButton(yes);
   }
 
+  /** 帮助层存在期间，暂停/恢复入口必须服从它保存的原始状态。 */
+  function pauseWhileHelpOpen() {
+    if (state.helpOpen) {
+      state.game.paused = true;
+      show('pause-overlay', false);
+      setPauseButton(true);
+      return;
+    }
+    pause(true);
+  }
+
   function togglePause() {
+    if (state.helpOpen) return;
     pause(!state.game.paused);
   }
 
   // ---- 选技 -------------------------------------------------------------
 
-  function pick(index) {
+  function pick(index, expectedId, expectedVersion) {
     const player = state.game.actors[0];
     if (!state.started || state.game.paused || state.game.result || !player.alive) return;
     const id = player.choices[index];
+    const version = Number(state.choiceVersion) || 1;
+    const eventVersion = Number(expectedVersion);
+    if (!Number.isInteger(eventVersion) || expectedId !== id || eventVersion !== version) return;
     if (!id || !chooseSkill(state.game, player, id)) return;
+    // 选择成功后立即作废旧 DOM；即使下一轮同槽位抽到同一技能也拒绝旧事件。
+    state.choiceVersion = Math.max(version, Number(state.choiceVersion) || 0) + 1;
+    $('choices').dataset.choiceVersion = String(state.choiceVersion);
     state.choiceKey = '';
     beep(state, 660, 0.1);
     toast(`已觉醒 · ${getSkills(state.game)[id].name}`);
   }
 
+  /** 数字键只选择当前已经渲染给玩家的选项。 */
+  function pickVisible(index) {
+    const choices = $('choices');
+    if (choices.classList.contains('hidden')) return;
+    const card = choices.querySelector(`[data-choice="${index}"]`);
+    if (!card) return;
+    pick(index, card.dataset.choiceId, card.dataset.choiceVersion);
+  }
+
   // ---- 帮助 -------------------------------------------------------------
 
   function openHelp() {
+    if (state.helpOpen) return;
+    state.helpOpen = true;
     state.helpWasPaused = state.game.paused;
-    if (state.started && !state.game.result) pause(true);
+    state.helpPauseOverlayWasShown = !$('pause-overlay').classList.contains('hidden');
+    const active = document.activeElement;
+    state.helpReturnFocus = active && active !== document.body ? active : $('help-button');
+    input.clearInput();
+    if (state.started && !state.game.result) {
+      state.game.paused = true;
+      input.clearInput();
+      setPauseButton(true);
+    }
+    show('pause-overlay', false);
+    $('app').inert = true;
+    $('app').setAttribute('inert', '');
+    $('help-overlay').inert = false;
     show('help-overlay', true);
+    $('close-help').focus({ preventScroll: true });
   }
 
   function closeHelp() {
+    if (!state.helpOpen) return;
     show('help-overlay', false);
-    if (state.started && !state.helpWasPaused) pause(false);
+    $('app').inert = false;
+    $('app').removeAttribute('inert');
+    state.helpOpen = false;
+    if (state.started && !state.game.result) {
+      state.game.paused = state.helpWasPaused;
+      input.clearInput();
+      show('pause-overlay', state.helpWasPaused && state.helpPauseOverlayWasShown);
+      setPauseButton(state.helpWasPaused);
+    }
+    const restoreFocus = state.helpReturnFocus;
+    state.helpReturnFocus = null;
+    if (restoreFocus?.isConnected !== false && typeof restoreFocus?.focus === 'function') {
+      restoreFocus.focus({ preventScroll: true });
+    }
+  }
+
+  function trapHelpFocus(event) {
+    if (!state.helpOpen) return;
+    if (event.key === 'Escape') {
+      closeHelp();
+      event.preventDefault();
+      event.stopPropagation?.();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const dialog = $('help-overlay').querySelector('.help-dialog');
+    if (!dialog) return;
+    const focusable = [...dialog.querySelectorAll('button')]
+      .filter((element) => element.tabIndex >= 0 && !element.disabled);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!dialog.contains(event.target)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus({ preventScroll: true });
+    } else if (event.shiftKey && event.target === first) {
+      event.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && event.target === last) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
   }
 
   // ---- 观战与声音 -------------------------------------------------------
@@ -214,6 +321,7 @@ export function createFlow(state, input, renderer, portraitCtx) {
   // ---- 绑定到 DOM -------------------------------------------------------
 
   function bind() {
+    syncBossHelpValues();
     $('map-count').textContent = `${String(Object.keys(BIOMES).length).padStart(2, '0')} ARENAS`;
     $('map-picker').innerHTML = Object.values(BIOMES).map((info) =>
       `<button class="map-card" data-map="${info.id}" aria-pressed="false" style="--map-accent:${info.accent}">`
@@ -242,12 +350,13 @@ export function createFlow(state, input, renderer, portraitCtx) {
     $('help-button').onclick = openHelp;
     $('close-help').onclick = closeHelp;
     $('help-done').onclick = closeHelp;
+    $('help-overlay').addEventListener('keydown', trapHelpFocus);
     $('sound-button').onclick = toggleSound;
     $('spectate-button').onclick = spectate;
 
     $('choices').addEventListener('click', (event) => {
       const card = event.target.closest('[data-choice]');
-      if (card) pick(Number(card.dataset.choice));
+      if (card) pick(Number(card.dataset.choice), card.dataset.choiceId, card.dataset.choiceVersion);
     });
     for (const id of ['roster', 'boss-ranking']) {
       $(id).addEventListener('click', selectSpectateTarget);
@@ -258,7 +367,7 @@ export function createFlow(state, input, renderer, portraitCtx) {
 
   return {
     bind, syncMode, selectMode, selectMap, begin, returnMenu,
-    pause, togglePause, pick, openHelp, closeHelp, spectate, toggleSound,
+    pause, pauseWhileHelpOpen, togglePause, pick, pickVisible, openHelp, closeHelp, spectate, toggleSound,
     /** 供 HUD 复用的对比基线重置。 */
     resetComparisons,
   };

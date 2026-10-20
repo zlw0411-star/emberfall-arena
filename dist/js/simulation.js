@@ -44,7 +44,7 @@ export function createGame(seed=Date.now(),options={}){
   return game;
 }
 export function spawnGem(game){
-  if(game.phase==='finale'||game.result)return null;
+  if(game.phase==='finale'||game.result||game.gems.length>=CONFIG.gemCap)return null;
   const p=game.ruleset==='boss'?bossResourcePoint(game,24):randomFree(game.map,game.rng,24);const gem={id:game.nextId++,...p,value:CONFIG.mapGemXp,kind:'xp'};game.gems.push(gem);game.gemSpawnCount++;return gem;
 }
 export function spawnMonster(game){

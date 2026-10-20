@@ -29,7 +29,10 @@ function step(name, command, args, env = {}) {
       env: { ...process.env, ...env },
     });
     const ms = Date.now() - started;
-    results.push({ name, ok: true, ms });
+    const result = { name, ok: true, ms };
+    if (args.includes('tests/performance.js')) result.metrics = JSON.parse(output);
+    if (args.includes('tests/boss-duels.mjs')) result.metrics = JSON.parse(output).performance;
+    results.push(result);
     console.log(`  ok    ${name}  (${ms}ms)`);
     return output;
   } catch (error) {
@@ -52,6 +55,7 @@ step('unit tests', process.execPath, [
   'tests/skill-ai.test.js', 'tests/skill-vfx.test.js', 'tests/boss.test.js',
   'tests/boss-dodge.test.js', 'tests/boss-lunge-ai.test.js', 'tests/boss-guard.test.js',
   'tests/regen.test.js', 'tests/state-snapshot.test.js', 'tests/minimap.test.js',
+  'tests/combat-boundaries.test.js', 'tests/gem-cap.test.js', 'tests/performance-guard.test.js',
 ]);
 
 console.log('2/6 full-match simulation (classic + melee, 60Hz)');

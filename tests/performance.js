@@ -1,9 +1,11 @@
 import { CONFIG, createGame, spawnMonster, stepGame } from '../dist/js/simulation.js';
+import { evaluatePerformanceBudget, parseP95Budget, percentile } from './performance-budget.mjs';
 
 const DT = 1 / 60;
 const WARMUP_SECONDS = 2;
 const MEASURE_SECONDS = 30;
 const GAME_MODE = process.env.GAME_MODE === 'melee' ? 'melee' : 'classic';
+const P95_BUDGET_MS = parseP95Budget(process.env.PERFORMANCE_P95_BUDGET_MS);
 const game = createGame(`performance-${CONFIG.actorCount}actors-${CONFIG.monsterCap}monsters`, { mode: GAME_MODE });
 
 game.phase = 'hunt';
@@ -34,12 +36,17 @@ for (let i = 0; i < MEASURE_SECONDS / DT; i++) {
   samplesMs.push(Number(process.hrtime.bigint() - start) / 1e6);
 }
 
-const sorted = [...samplesMs].sort((a, b) => a - b);
 const averageMs = samplesMs.reduce((sum, ms) => sum + ms, 0) / samplesMs.length;
-const p95Ms = sorted[Math.ceil(sorted.length * 0.95) - 1];
-const maxMs = sorted.at(-1);
+const p95Ms = percentile(samplesMs);
+const maxMs = Math.max(...samplesMs);
 const liveActors = game.actors.filter(actor => actor.alive).length;
 const liveMonsters = game.monsters.filter(monster => monster.alive).length;
+
+if (liveActors !== 12 || liveMonsters !== 62) {
+  throw new Error(`Expected 12 actors + 62 live monsters, measured ${liveActors} + ${liveMonsters}`);
+}
+
+const budget = evaluatePerformanceBudget(p95Ms, P95_BUDGET_MS);
 
 console.log(JSON.stringify({
   node: process.version,
@@ -52,7 +59,14 @@ console.log(JSON.stringify({
   stepAverageMs: Number(averageMs.toFixed(3)),
   stepP95Ms: Number(p95Ms.toFixed(3)),
   stepP95Of60HzBudgetPercent: Number((p95Ms / (1000 / 60) * 100).toFixed(1)),
+  p95BudgetMs: budget.budgetMs,
+  p95WithinBudget: budget.p95WithinBudget,
   stepMaxMs: Number(maxMs.toFixed(3)),
   measuredWallSeconds: Number((samplesMs.reduce((sum, ms) => sum + ms, 0) / 1000).toFixed(3)),
   realtimeFactor: Number((MEASURE_SECONDS / (samplesMs.reduce((sum, ms) => sum + ms, 0) / 1000)).toFixed(2)),
 }, null, 2));
+
+if (!budget.p95WithinBudget) {
+  console.error(`Performance budget exceeded: P95 ${p95Ms.toFixed(3)}ms > ${budget.budgetMs}ms`);
+  process.exitCode = 1;
+}

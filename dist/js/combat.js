@@ -1,5 +1,5 @@
 // Combat simulation. This module deliberately has no DOM or external dependencies.
-import { lineClear, moveEntity } from './world.js';
+import { blocked, lineClear, moveEntity } from './world.js';
 import { modeOf, normalizeMode, MELEE_BALANCE, usesMeleeActions, weaponTypeOf } from './modes.js';
 import { canAct, canTarget, combatModeOf, combatTargets, isBossGame } from './targeting.js';
 import { BOSS_CONFIG, bossIncomingMultiplier } from './boss-config.js';
@@ -281,11 +281,33 @@ function castRangedSkill(game, actor, slot, aimX, aimY) {
  * 以前是 `if (skillId === 'fireball') ... else if (skillId === 'dash') ... else if (skillId === 'quake')`，
  * 新增技能要同时改目录、冷却、释放三处。现在释放行为只写在这里。
  */
+function fireballSpawn(map, actor, ux, uy, radius) {
+  const distance = ACTIVES.fireball.muzzle;
+  const muzzle = { x: actor.x + ux * distance, y: actor.y + uy * distance };
+  if (lineClear(map, actor, muzzle, radius)) return muzzle;
+  // Never skip a blocked part of the path. Large fireballs may initially
+  // overlap a wall beside the smaller actor, but can still be aimed away.
+  let spawn = null;
+  const steps = Math.max(1, Math.ceil(distance));
+  for (let i = 0; i <= steps; i++) {
+    const x = actor.x + ux * distance * i / steps;
+    const y = actor.y + uy * distance * i / steps;
+    if (blocked(map, x, y, Math.min(radius, actor.radius || 12))) break;
+    if (blocked(map, x, y, radius)) {
+      if (spawn) break;
+    } else spawn = { x, y };
+  }
+  return spawn;
+}
+
 const CAST_EFFECTS = {
   fireball(game, actor, rank, ux, uy) {
+    const radius = ACTIVES.fireball.radiusBase + rank * ACTIVES.fireball.radiusPerRank;
+    const spawn = fireballSpawn(game.map, actor, ux, uy, radius);
+    if (!spawn) return false;
     game.bullets ||= [];
-    game.bullets.push({ x: actor.x + ux * ACTIVES.fireball.muzzle, y: actor.y + uy * ACTIVES.fireball.muzzle, vx: ux * ACTIVES.fireball.speed, vy: uy * ACTIVES.fireball.speed,
-      radius: ACTIVES.fireball.radiusBase + rank * ACTIVES.fireball.radiusPerRank, damage: scaledDamage(actor, fireballDamage(rank)), ownerId: actor.id, ttl: ACTIVES.fireball.ttl,
+    game.bullets.push({ ...spawn, vx: ux * ACTIVES.fireball.speed, vy: uy * ACTIVES.fireball.speed,
+      radius, damage: scaledDamage(actor, fireballDamage(rank)), ownerId: actor.id, ttl: ACTIVES.fireball.ttl,
       kind: 'fireball', color: SKILLS.fireball.color, splash: fireballSplash(rank) });
     pushEffect(game, { x: actor.x + ux * 18, y: actor.y + uy * 18, kind: 'burst', color: SKILLS.fireball.color, radius: ACTIVES.fireball.effectRadius, ttl: ACTIVES.fireball.effectTtl });
   },
@@ -608,6 +630,12 @@ function tickGems(game, dt) {
 
 function tickTraps(game, dt) {
   if (!Array.isArray(game.map?.traps)) return;
+  const entities = [...actorList(game), ...monsterList(game)];
+  // Cooldowns follow simulation time, including retracted traps and time away.
+  // Decrement once per victim rather than once per overlapping trap.
+  for (const entity of entities) {
+    if (entity.trapDamageTimer > 0) entity.trapDamageTimer = Math.max(0, entity.trapDamageTimer - dt);
+  }
   const t = game.time || 0;
   for (const trap of game.map.traps) {
     if (trap.type !== 'spike') continue;
@@ -615,11 +643,10 @@ function tickTraps(game, dt) {
     trap.active = phase >= 2.8;
     trap.warning = phase >= 2.1 && phase < 2.8;
     if (!trap.active) continue;
-    for (const entity of [...actorList(game), ...monsterList(game)]) {
+    for (const entity of entities) {
       if (isBossGame(game) && entity.isBoss) continue;
       if (!alive(entity) || Math.hypot(entity.x - trap.x, entity.y - trap.y) > trap.r + (entity.radius || 0)) continue;
-      entity.trapDamageTimer = (entity.trapDamageTimer || 0) - dt;
-      if (entity.trapDamageTimer <= 0) {
+      if (!(entity.trapDamageTimer > 0)) {
         damage(game, entity, 8, { type: 'trap' });
         entity.trapDamageTimer = 0.65;
         pushEffect(game, { x: trap.x, y: trap.y, kind: 'burst', color: '#fb7185', radius: trap.r, ttl: 0.28 });

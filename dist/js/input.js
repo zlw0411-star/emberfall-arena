@@ -15,6 +15,16 @@ const PREVENT_DEFAULT = new Set([
   'arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'escape', '1', '2', '3', 'q', 'e', 'r',
 ]);
 const SKILL_SLOTS = ['q', 'e', 'r'];
+const NATIVE_CONTROL_SELECTOR = 'button, input, select, textarea, [contenteditable="true"]';
+
+/** 只有画布/战场容器获得焦点时才拦截游戏热键；原生表单控件保留默认语义。 */
+function isGameKeyboardContext(event) {
+  const target = event.target;
+  if (!target || typeof target.closest !== 'function') return true;
+  if (target.closest(NATIVE_CONTROL_SELECTOR)) return false;
+  return target === $('game') || target === $('game-shell') || target === document.body || target?.id === 'body'
+    || target?.getAttribute?.('role') === 'application';
+}
 
 export function createInput(state, actions) {
   const keys = state.keys;
@@ -53,16 +63,22 @@ export function createInput(state, actions) {
   // ---- 键盘 -------------------------------------------------------------
 
   window.addEventListener('keydown', (event) => {
+    if (event.defaultPrevented || event.target?.isConnected === false) return;
     const key = event.key.toLowerCase();
-    if (PREVENT_DEFAULT.has(key)) event.preventDefault();
+    const helpOpen = !$('help-overlay').classList.contains('hidden');
+    if (helpOpen) {
+      if (!isGameKeyboardContext(event)) return;
+      if (PREVENT_DEFAULT.has(key)) event.preventDefault();
+      return;
+    }
+    if (PREVENT_DEFAULT.has(key) && isGameKeyboardContext(event)) event.preventDefault();
     if (event.repeat) return;
     if (key === 'escape') {
-      if (!$('help-overlay').classList.contains('hidden')) actions.closeHelp();
-      else actions.togglePause();
+      actions.togglePause();
       return;
     }
     keys.add(key);
-    if ('123'.includes(key)) actions.pick(Number(key) - 1);
+    if ('123'.includes(key)) actions.pickVisible(Number(key) - 1);
     if (SKILL_SLOTS.includes(key) && state.started && !state.game.paused) {
       state.castSlot = SKILL_SLOTS.indexOf(key);
     }
