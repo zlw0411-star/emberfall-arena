@@ -56,6 +56,15 @@ function addChoiceCards(container, html) {
   }
 }
 
+function addRosterRows(container, html) {
+  for (const [, attributes, content] of html.matchAll(/<div\b([^>]*)>([\s\S]*?)<\/div>/g)) {
+    const row = makeElement(`roster-${++choiceCardSerial}`);
+    for (const [, name, value] of attributes.matchAll(/([\w-]+)="([^"]*)"/g)) row.setAttribute(name, value);
+    row._innerHTML = content;
+    container.appendChild(row);
+  }
+}
+
 function markButton(element) {
   element.tagName = 'BUTTON';
   return element;
@@ -77,8 +86,9 @@ function makeElement(id = '') {
     get innerHTML() { return this._innerHTML + this.children.map(child => child.outerHTML).join(''); },
     set innerHTML(value) {
       for (const child of [...this.children]) child.remove();
-      this._innerHTML = this.id === 'choices' ? '' : value;
+      this._innerHTML = ['choices', 'roster'].includes(this.id) ? '' : value;
       if (this.id === 'choices') addChoiceCards(this, value);
+      if (this.id === 'roster') addRosterRows(this, value);
     },
     get outerHTML() {
       const attributes = new Map(this._attributes);
@@ -506,6 +516,38 @@ function assertMenuRecovery(mode) {
   assertFreshGame(mode, 'start-button');
 }
 
+scenario('暂停时调整窗口会立即重绘小地图，且不推进模拟', () => {
+  const game = startMode('classic');
+  pumpFrames(8);
+  click('pause-button');
+  const time = game.time;
+  const mini = document.getElementById('minimap');
+  const renderer = debug.state.renderer;
+  const drawMap = renderer.drawMap;
+  const originalSize = [mini.clientWidth, mini.clientHeight];
+  let paints = 0;
+  renderer.drawMap = function (...args) { paints++; return drawMap.apply(this, args); };
+  try {
+    for (const [width, height] of [[252, 150], [150, 252]]) {
+      mini.clientWidth = width;
+      mini.clientHeight = height;
+      const before = paints;
+      window.dispatch('resize');
+      pumpFrames(1);
+      assert.equal(paints, before + 1, '暂停时尺寸变化也必须刷新地图');
+      assert.deepEqual([mini.width, mini.height], [width, height]);
+      assert.equal(game.time, time);
+      pumpFrames(4);
+      assert.equal(paints, before + 1, '静止且尺寸不变时不应反复重画');
+    }
+  } finally {
+    renderer.drawMap = drawMap;
+    [mini.clientWidth, mini.clientHeight] = originalSize;
+  }
+  click('pause-button');
+  assertMenuRecovery('classic');
+});
+
 const { BIOMES, biomeOf } = await import('../dist/js/biomes.js');
 for (const mode of ['classic', 'melee']) for (const mapId of Object.keys(BIOMES)) {
   scenario(`${mode}/${mapId}: 地图选择、模式切换、地图锁定与重开`, () => {
@@ -791,15 +833,56 @@ for (const mode of ['classic', 'melee']) {
     click('spectate-button');
     assert.equal(debug.state.deathDismissed, true);
     const roster = document.getElementById('roster');
-    const row = makeElement(`roster-row-${living[1].id}`);
-    row.dataset.actor = living[1].id;
-    roster.appendChild(row);
+    const row = roster.querySelector(`[data-actor="${living[1].id}"]`);
+    assert.ok(row, '使用HUD实际生成的名册行');
     roster.dispatch('click', { target: row });
     const before = game.time;
     pumpFrames(16);
     assert.ok(game.time > before, '观战必须继续推进模拟');
     assert.equal(debug.state.spectateId, living[1].id, '点击名册必须切换观战目标');
     assert.equal(hidden('death-card'), true, '关闭死亡卡后不能再次弹出');
+    assertMenuRecovery(mode);
+  });
+
+  scenario(`${mode}: 观战名册跨刷新保留焦点、键盘选人及死亡回退`, () => {
+    const game = startMode(mode);
+    damage(game, game.actors[0], 10000, { type: 'trap' });
+    pumpFrames(8);
+    click('spectate-button');
+    const roster = document.getElementById('roster');
+    const actor = game.actors[2];
+    const row = roster.querySelector(`[data-actor="${actor.id}"]`);
+    assert.equal(row.getAttribute('role'), 'button');
+    row.focus();
+    pumpFrames(16);
+    assert.equal(document.activeElement, row, '多次HUD刷新后仍应聚焦同一角色行');
+    assert.equal(roster.querySelector(`[data-actor="${actor.id}"]`), row, '实际行应复用');
+    for (const key of ['Enter', ' ']) {
+      window.dispatch('keydown', { key });
+      window.dispatch('keyup', { key });
+      assert.equal(debug.state.spectateId, actor.id);
+      pumpFrames(8);
+      assert.equal(row.getAttribute('aria-pressed'), 'true');
+    }
+    actor.level = 9;
+    pumpFrames(8);
+    assert.equal(document.activeElement, row, '等级更新不应移除焦点行');
+    assert.match(row.innerHTML, /LV\.09/);
+    damage(game, actor, 10000, { type: 'trap' });
+    pumpFrames(8);
+    assert.notEqual(debug.state.spectateId, actor.id);
+    assert.equal(row.getAttribute('role'), null);
+    assert.equal(row.getAttribute('tabindex'), null);
+    assert.equal(document.activeElement, document.getElementById('game-shell'));
+    window.dispatch('keydown', { key: 'Enter', target: row });
+    assert.notEqual(debug.state.spectateId, actor.id, '死亡旧行不可切回');
+    const survivorRow = roster.querySelector(`[data-actor="${game.actors[3].id}"]`);
+    survivorRow.focus();
+    game.result = { winnerId: game.actors[3].id, time: game.time };
+    pumpFrames(8);
+    assert.equal(survivorRow.getAttribute('role'), null, '结算撤销观战交互');
+    assert.equal(document.activeElement, document.getElementById('game-shell'));
+    assertFreshGame(mode, 'restart-result');
     assertMenuRecovery(mode);
   });
 
@@ -1102,7 +1185,8 @@ scenario('首领：选技不停战、真实死亡保留原卡、自动复活清�
   game.time = player.respawnAt - 0.05;
   // 等待复活时的新输入不能泄漏到复活后的角色。
   window.dispatch('keydown', { key: 'd' });
-  pumpFrames(8);
+  // 覆盖0.05秒复活等待，再留出完整的100ms HUD刷新窗口。
+  pumpFrames(12);
   assert.equal(player.alive, true);
   assert.equal(game.paused, false);
   assertInputCleared(game);

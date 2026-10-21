@@ -77,6 +77,37 @@ test('lost pointer capture ends held input but preserves an unconsumed click edg
   assert.deepEqual(input.read(), { attackHeld: false, attackPressed: false });
 });
 
+test('unrelated pointer releases, cancellations and capture loss preserve the attacking pointer', () => {
+  for (const eventType of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    const { canvas, input, hostEvent } = harness();
+    canvas.pointerDown({ pointerId: 11 });
+    assert.deepEqual(input.read(), { attackHeld: true, attackPressed: true });
+    if (eventType === 'lostpointercapture') canvas.loseCapture(22);
+    else hostEvent(eventType, { pointerId: 22 });
+    assert.deepEqual(input.read(), { attackHeld: true, attackPressed: false }, eventType);
+    assert.equal(canvas.hasPointerCapture(11), true, eventType);
+    hostEvent('pointerup', { pointerId: 11 });
+    assert.equal(input.read().attackHeld, false);
+    assert.equal(canvas.hasPointerCapture(11), false);
+  }
+});
+
+test('a second pointer cannot replace the attacking pointer or enqueue another click', () => {
+  const state = harness();
+  state.canvas.pointerDown({ pointerId: 11 });
+  state.input.read();
+  state.canvas.pointerDown({ pointerId: 22 });
+  assert.deepEqual(state.input.read(), { attackHeld: true, attackPressed: false });
+  assert.equal(state.starts, 1);
+  assert.equal(state.canvas.hasPointerCapture(22), false);
+  state.hostEvent('pointerup', { pointerId: 22 });
+  assert.equal(state.input.read().attackHeld, true);
+  state.hostEvent('pointerup', { pointerId: 11 });
+  state.canvas.pointerDown({ pointerId: 22 });
+  assert.deepEqual(state.input.read(), { attackHeld: true, attackPressed: true });
+  assert.equal(state.starts, 2);
+});
+
 test('disabled input and non-left or off-canvas clicks never start an attack', () => {
   for (const stateName of ['paused', 'dead', 'classic', 'menu']) {
     let allowed = true;

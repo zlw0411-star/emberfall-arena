@@ -43,7 +43,16 @@ function drawSword(c,x,y,angle,range,flash){
 }
 export class Renderer{
  constructor(canvas,minimap){this.canvas=canvas;this.ctx=canvas.getContext('2d',{alpha:false});this.minimap=minimap;this.mctx=minimap.getContext('2d',{alpha:false});this.camera={x:1024,y:1024};this.zoom=1.55;this.terrain=null;this.seed=null;this.decor=[];this.lastMap=0;}
- resize(){const w=Math.round(this.canvas.clientWidth),h=Math.round(this.canvas.clientHeight);if(this.canvas.width!==w||this.canvas.height!==h){this.canvas.width=w;this.canvas.height=h;}this.ctx.imageSmoothingEnabled=false;this.zoom=w<650?1.25:1.55;}
+ resize(){const w=Math.round(this.canvas.clientWidth),h=Math.round(this.canvas.clientHeight);if(this.canvas.width!==w||this.canvas.height!==h){this.canvas.width=w;this.canvas.height=h;}this.ctx.imageSmoothingEnabled=false;this.zoom=w<650?1.25:1.55;this.resizeMinimap();}
+ resizeMinimap(){
+  const w=Math.round(this.minimap.clientWidth),h=Math.round(this.minimap.clientHeight);
+  if(!(w>0&&h>0))return;
+  if(this.minimap.width!==w||this.minimap.height!==h){
+   this.minimap.width=w;this.minimap.height=h;
+   this.lastMap=-Infinity;
+  }
+  this.mctx.imageSmoothingEnabled=false;
+ }
  bake(map){
   this.seed=map.seed;this.biome=terrainBiome(map);this.lastMap=-Infinity;const rng=rngFromSeed('art'+map.seed);const t=document.createElement('canvas');t.width=map.width;t.height=map.height;const c=t.getContext('2d');c.imageSmoothingEnabled=false;if(bakeBiome(c,map,rng)){this.terrain=t;this.decor=[];return;}rect(c,palette.ground,0,0,t.width,t.height);
   const shades=['#2b3f31','#2c3f32','#293b30','#304332','#293d31','#2a3e32'];
@@ -103,6 +112,6 @@ export class Renderer{
   const y=a.y-28;c.font='7px "Space Grotesk","Noto Sans SC",sans-serif';c.textAlign='center';c.fillStyle='#111e16';c.fillText(`${a.name}  Lv.${a.level}`,a.x+1,y-6);c.fillStyle=a.isPlayer?'#f0d99e':'#c7d1b2';c.fillText(`${a.name}  Lv.${a.level}`,a.x,y-7);rect(c,'#1a281c',a.x-15,y-3,30,3);rect(c,a.isPlayer?'#c9bf7a':phase==='grace'?'#91af7a':'#ca9374',a.x-15,y-3,30*a.hp/a.maxHp,2);
   if(a.isPlayer){c.fillStyle='#e7c67a';c.beginPath();c.moveTo(a.x-3,y-18);c.lineTo(a.x+3,y-18);c.lineTo(a.x,y-14);c.fill();}
  }
- drawMap(game){const c=this.mctx,w=this.minimap.width,h=this.minimap.height,scale=Math.min(w/game.map.width,h/game.map.height),ox=(w-game.map.width*scale)/2,oy=0;rect(c,'#15231a',0,0,w,h);c.save();c.translate(ox,oy);c.scale(scale,scale);c.drawImage(this.terrain,0,0);drawBossTelegraph(c,game.boss,game.time);if(game.boss){rect(c,'#eeac74',game.boss.x-25,game.boss.y-25,50,50);}for(const o of game.map.obstacles)this.obstacle(c,o);for(const g of game.gems)rect(c,'#a6d09a',g.x-6,g.y-6,12,12);for(const a of game.actors)if(a.alive){ellipse(c,a.isPlayer?'#f6ce79':'#d6977a',a.x,a.y,a.isPlayer?30:21,a.isPlayer?30:21);}if(game.zone){c.strokeStyle='#ead194';c.lineWidth=13;c.beginPath();c.arc(game.zone.x,game.zone.y,game.zone.radius,0,Math.PI*2);c.stroke();rect(c,'#f5d892',game.zone.x-15,game.zone.y-15,30,30);}c.strokeStyle='#b8c6a666';c.lineWidth=9;c.strokeRect(this.camera.x-this.canvas.width/2/this.zoom,this.camera.y-this.canvas.height/2/this.zoom,this.canvas.width/this.zoom,this.canvas.height/this.zoom);c.restore();}
+ drawMap(game){const c=this.mctx,w=this.minimap.width,h=this.minimap.height,scale=Math.min(w/game.map.width,h/game.map.height),ox=(w-game.map.width*scale)/2,oy=(h-game.map.height*scale)/2;rect(c,'#15231a',0,0,w,h);c.save();c.translate(ox,oy);c.scale(scale,scale);c.drawImage(this.terrain,0,0);drawBossTelegraph(c,game.boss,game.time);if(game.boss){rect(c,'#eeac74',game.boss.x-25,game.boss.y-25,50,50);}for(const o of game.map.obstacles)this.obstacle(c,o);for(const g of game.gems)rect(c,'#a6d09a',g.x-6,g.y-6,12,12);for(const a of game.actors)if(a.alive){ellipse(c,a.isPlayer?'#f6ce79':'#d6977a',a.x,a.y,a.isPlayer?30:21,a.isPlayer?30:21);}if(game.zone){c.strokeStyle='#ead194';c.lineWidth=13;c.beginPath();c.arc(game.zone.x,game.zone.y,game.zone.radius,0,Math.PI*2);c.stroke();rect(c,'#f5d892',game.zone.x-15,game.zone.y-15,30,30);}c.strokeStyle='#b8c6a666';c.lineWidth=9;c.strokeRect(this.camera.x-this.canvas.width/2/this.zoom,this.camera.y-this.canvas.height/2/this.zoom,this.canvas.width/this.zoom,this.canvas.height/this.zoom);c.restore();}
  toWorld(x,y){return{x:this.camera.x+(x-this.canvas.width/2)/this.zoom,y:this.camera.y+(y-this.canvas.height/2)/this.zoom};}
 }

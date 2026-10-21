@@ -48,7 +48,7 @@ function canvasMock(width = 240, height = 160) {
     };
   }
   return {
-    canvas: { width, height, getContext: () => context }, context, calls,
+    canvas: { width, height, clientWidth: width, clientHeight: height, getContext: () => context }, context, calls,
     get depth() { return stack.length; },
     get transform() { return state.transform; },
   };
@@ -154,5 +154,36 @@ for (const mapId of [undefined, 'courtyard', 'desert', 'frost', 'swamp']) {
     assert.equal(viewport.strokeStyle, '#b8c6a666');
     assert.deepEqual(viewport.transform, transform);
     assert.ok(mini.calls.indexOf(zone) > firstGem, 'safety circle must overlay obstacles/resources');
+  });
+}
+
+for (const [width, height] of [[252, 150], [278, 168], [213, 133], [150, 252]]) {
+  test(`resized minimap keeps the safety circle round and the map centered: ${width}x${height}`, () => {
+    const game = createGame('minimap-resize');
+    game.zone = { x: 1024, y: 1024, radius: 570 };
+    freezeDeep(game.map);
+    const main = canvasMock(900, 600), mini = canvasMock(224, 170);
+    const renderer = new Renderer(main.canvas, mini.canvas);
+    renderer.terrain = {};
+    renderer.lastMap = 42;
+    mini.canvas.clientWidth = width;
+    mini.canvas.clientHeight = height;
+    renderer.resize();
+    assert.equal(renderer.lastMap, -Infinity, 'resize must invalidate a paused minimap too');
+    renderer.drawMap(game);
+    const circle = mini.calls.find(call => call.method === 'stroke' && call.strokeStyle === '#ead194');
+    const [sx, sy, ox, oy] = circle.transform;
+    const displayedX = sx * width / mini.canvas.width;
+    const displayedY = sy * height / mini.canvas.height;
+    assert.ok(Math.abs(displayedX - displayedY) < 1e-12, 'CSS display would turn a circle into an ellipse');
+    assert.equal(ox + sx * game.map.width / 2, mini.canvas.width / 2);
+    assert.equal(oy + sy * game.map.height / 2, mini.canvas.height / 2);
+    assert.equal(mini.depth, 0);
+    renderer.lastMap = 42;
+    renderer.resize();
+    assert.equal(renderer.lastMap, 42, 'unchanged dimensions must not invalidate every frame');
+    mini.canvas.clientWidth = mini.canvas.clientHeight = 0;
+    renderer.resize();
+    assert.deepEqual([mini.canvas.width, mini.canvas.height], [width, height], 'hidden canvas must keep its valid buffer');
   });
 }

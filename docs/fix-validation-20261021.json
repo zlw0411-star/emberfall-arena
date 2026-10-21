@@ -1,0 +1,81 @@
+{
+  "baseCommit": "a5b75fc",
+  "scope": "B01-B05 local source fixes; no gameplay balance or baseline change",
+  "status": {
+    "committed": false,
+    "pushed": false,
+    "deployed": false
+  },
+  "runtime": { "node": "v24.18.0", "browser": "Edg/155.0.4283.62", "browserMode": "headless via CDP" },
+  "beforeFix": {
+    "focusedUnitTests": { "total": 16, "passed": 10, "failed": 6 },
+    "confirmedFailures": [
+      "unrelated pointer releases, cancellations and capture loss",
+      "second pointer replacing the active pointer or queuing a new click",
+      "minimap resizing/invalidation at 252x150, 278x168, 213x133 and 150x252",
+      "classic and melee roster focus lost across HUD refreshes"
+    ]
+  },
+  "afterFix": {
+    "focusedUnitTests": { "total": 16, "passed": 16, "failed": 0 },
+    "unitTestCount": 220,
+    "unitTestFiles": 22,
+    "missingTestFilesFromVerify": [],
+    "domNamedScenarios": 36,
+    "verify": {
+      "at": "2026-10-21T02:39:34.550Z",
+      "passed": 10,
+      "total": 10,
+      "failed": 0,
+      "checks": [
+        { "name": "unit tests", "ok": true, "ms": 7761 },
+        { "name": "simulate classic 60Hz", "ok": true, "ms": 17045 },
+        { "name": "simulate melee 60Hz", "ok": true, "ms": 8203 },
+        { "name": "dom smoke", "ok": true, "ms": 5609 },
+        { "name": "duels (ranged)", "ok": true, "ms": 69 },
+        { "name": "duels (melee)", "ok": true, "ms": 75 },
+        { "name": "boss fixed-build duels + mixed-weapon stress", "ok": true, "ms": 844 },
+        { "name": "performance classic", "ok": true, "ms": 986 },
+        { "name": "performance melee", "ok": true, "ms": 911 },
+        { "name": "state snapshot", "ok": true, "ms": 51551 }
+      ]
+    },
+    "snapshot": { "runs": 8, "marks": 3537, "byteIdentical": true, "baselineRewritten": false },
+    "performance": {
+      "actors": 12,
+      "liveMonsters": 62,
+      "measuredSteps": 1800,
+      "p95BudgetMs": 8,
+      "classic": { "averageMs": 0.461, "p95Ms": 0.870, "maxMs": 11.541 },
+      "melee": { "averageMs": 0.425, "p95Ms": 0.669, "maxMs": 1.408 },
+      "boss": { "averageMs": 0.374, "p95Ms": 0.730 },
+      "includesBrowserRendering": false
+    },
+    "browser": {
+      "modes": ["classic", "melee"],
+      "viewportWidths": [1440, 1600, 1024, 800, 640, 320],
+      "rosterFocusSurvives260ms": true,
+      "nativeEnterAndSpaceSelect": true,
+      "deadTargetFocusReturnsToBattlefield": true,
+      "rosterVisibleAtAllWidths": true,
+      "actualNarrowMouseClicksSelect": true,
+      "minimapResizesWhilePaused": true,
+      "minimap1440": { "buffer": [252, 150], "display": [252, 150], "axisRatio": 1 },
+      "maxObservedMinimapAxisRatioError": 0.001806,
+      "nativeHeldMouseSurvivesSyntheticUnrelatedPointerEvents": true,
+      "nativeMouseReleaseStopsAttack": true,
+      "runtimeOrErrorLogCount": 0,
+      "physicalMultiTouchDeviceTested": false,
+      "naturalFullHumanMatchTested": false,
+      "fixture": "Real damage triggers death; simulation then paused for UI and responsive layout checks. Native CDP mouse/key input with a synthetic secondary PointerEvent."
+    }
+  },
+  "bossMatrix": {
+    "rerunAfterFix": false,
+    "reason": "Only presentation/input and documentation changed; previous same-session audit tested the unchanged combat/AI/map implementation. Full verify reran boss rules, fixed builds, stress and DOM paths.",
+    "precedingAudit": { "runs": 24, "bossDefeated": 24, "timeLimit": 0, "averageTime": 572.52, "classicWins": 8, "meleeWins": 16, "classicDeaths": 7, "meleeDeaths": 92 },
+    "source": "AUDIT-20261021.md"
+  },
+  "temporaryArtifacts": ".local/fixes-20261021-* (ignored by Git)",
+  "temporaryServerAndBrowserStopped": true
+}

@@ -12,17 +12,21 @@ export function createAttackInput(canvas, host, enabled, onStart = () => {}) {
     clear() { held = false; pressed = false; releaseCapture(); },
   };
   canvas.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || !enabled()) return;
+    if (event.button !== 0 || pointerId !== null || !enabled()) return;
     held = true; pressed = true; pointerId = event.pointerId;
     canvas.setPointerCapture(pointerId);
     onStart(event);
     event.preventDefault();
   });
   host.addEventListener('pointerup', event => {
-    if (event.button === 0) { held = false; releaseCapture(); }
+    if (event.button === 0 && event.pointerId === pointerId) { held = false; releaseCapture(); }
   });
-  host.addEventListener('pointercancel', () => input.clear());
+  host.addEventListener('pointercancel', event => {
+    if (event.pointerId === pointerId) input.clear();
+  });
   host.addEventListener('blur', () => input.clear());
-  canvas.addEventListener('lostpointercapture', () => { held = false; pointerId = null; });
+  canvas.addEventListener('lostpointercapture', event => {
+    if (event.pointerId === pointerId) { held = false; pointerId = null; }
+  });
   return input;
 }

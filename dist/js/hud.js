@@ -138,20 +138,41 @@ export function createHud(state, actions) {
   // ---- 右侧名册 ---------------------------------------------------------
 
   function renderRoster(game, player) {
-    const canSpectate = !player.alive;
-    $('roster').innerHTML = game.actors.map((actor) => {
-      const classes = ['roster-row', actor.isPlayer ? 'you' : '', actor.alive ? '' : 'dead']
+    const container = $('roster');
+    const focused = container.contains(document.activeElement) ? document.activeElement : null;
+    const existing = new Map([...container.children].map(row => [row.dataset.actor, row]));
+    const canSpectate = state.started && !game.result && !player.alive;
+    for (const [index, actor] of game.actors.entries()) {
+      const row = existing.get(actor.id) || document.createElement('div');
+      existing.delete(actor.id);
+      const selectable = canSpectate && actor.alive;
+      row.dataset.actor = actor.id;
+      row.className = ['roster-row', actor.isPlayer ? 'you' : '', actor.alive ? '' : 'dead',
+        selectable ? 'spectate-target' : '', selectable && actor.id === state.spectateId ? 'watching' : '']
         .filter(Boolean).join(' ');
-      const interactive = canSpectate && actor.alive ? 'role="button" tabindex="0"' : '';
+      if (selectable) {
+        row.setAttribute('role', 'button');
+        row.setAttribute('tabindex', '0');
+        row.setAttribute('aria-label', `观战${actor.name}`);
+        row.setAttribute('aria-pressed', String(actor.id === state.spectateId));
+      } else {
+        for (const attribute of ['role', 'tabindex', 'aria-label', 'aria-pressed']) row.removeAttribute(attribute);
+      }
       const avatar = actor.alive ? '♟' : '×';
       const name = actor.isPlayer ? '灰烬旅者 <small>你</small>' : actor.name;
-      return `<div class="${classes}" data-actor="${actor.id}" ${interactive}>`
-        + `<span class="roster-avatar" style="color:${actor.color}">${avatar}</span>`
+      const content = `<span class="roster-avatar" style="color:${actor.color}">${avatar}</span>`
         + `<span class="roster-name">${name}</span>`
         + `<span class="roster-level">LV.${String(actor.level).padStart(2, '0')}</span>`
-        + `<span class="roster-state">${actor.alive ? '存活' : '陨落'}</span>`
-        + '</div>';
-    }).join('');
+        + `<span class="roster-state">${actor.alive ? '存活' : '陨落'}</span>`;
+      if (row.innerHTML !== content) row.innerHTML = content;
+      if (container.children[index] !== row) container.insertBefore(row, container.children[index] || null);
+    }
+    for (const row of existing.values()) row.remove();
+    // Keep the focused actor through refresh/reordering; leave dead or settled rows.
+    if (focused) {
+      const target = focused.getAttribute('role') === 'button' && container.contains(focused) ? focused : $('game-shell');
+      if (document.activeElement !== target) target.focus({ preventScroll: true });
+    }
   }
 
   // ---- 技能栏 -----------------------------------------------------------
