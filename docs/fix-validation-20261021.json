@@ -2,9 +2,16 @@
   "baseCommit": "a5b75fc",
   "scope": "B01-B05 local source fixes; no gameplay balance or baseline change",
   "status": {
-    "committed": false,
-    "pushed": false,
-    "deployed": false
+    "committed": true,
+    "pushed": true,
+    "deployed": false,
+    "sourceCommit": "ffb6098de7e4308eab871f1a64b511e09b871ccf",
+    "githubVerifiedAt": "2026-10-21T02:44:24.205Z",
+    "sitesDeployment": {
+      "state": "blocked",
+      "reason": "Current session does not expose the required Sites connector tools for site lookup, source credentials, version saving or deployment; installed local skill files alone do not provide those tools.",
+      "projectId": "appgprj_6ad0c31508c0819192df1f0d79c32a01"
+    }
   },
   "runtime": { "node": "v24.18.0", "browser": "Edg/155.0.4283.62", "browserMode": "headless via CDP" },
   "beforeFix": {
