@@ -4,13 +4,21 @@
   "status": {
     "committed": true,
     "pushed": true,
-    "deployed": false,
+    "deployed": true,
     "sourceCommit": "ffb6098de7e4308eab871f1a64b511e09b871ccf",
     "githubVerifiedAt": "2026-10-21T02:44:24.205Z",
     "sitesDeployment": {
-      "state": "blocked",
-      "reason": "Current session does not expose the required Sites connector tools for site lookup, source credentials, version saving or deployment; installed local skill files alone do not provide those tools.",
-      "projectId": "appgprj_6ad0c31508c0819192df1f0d79c32a01"
+      "state": "succeeded",
+      "projectId": "appgprj_6ad0c31508c0819192df1f0d79c32a01",
+      "publishedCommit": "94b0c3b4159419067755fc3fc345e4f099f4b2b0",
+      "savedVersionId": "appgprj_6ad0c31508c0819192df1f0d79c32a01~appgver_59239fd7cbdc819197452839f6f28fb3",
+      "deploymentId": "appgdep_6ad82a3304dc8191b53d353b0ef7bdbe",
+      "succeededAt": "2026-10-21T02:58:10.487474+00:00",
+      "url": "https://emberfall-rogue-arena-1015.flowyaspen.chatgpt.site",
+      "audiencePreserved": true,
+      "access": "owner-private",
+      "nativeTool": "sites.save_version_and_deploy_private",
+      "execution": "Authenticated official Codex CLI, ephemeral session; official Sites source helper; credentials through hidden stdin only"
     }
   },
   "runtime": { "node": "v24.18.0", "browser": "Edg/155.0.4283.62", "browserMode": "headless via CDP" },
