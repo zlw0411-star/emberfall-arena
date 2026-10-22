@@ -548,6 +548,34 @@ scenario('暂停时调整窗口会立即重绘小地图，且不推进模拟', (
   assertMenuRecovery('classic');
 });
 
+scenario('静态菜单复用小地图，切图、重开、缩放和暂停观战仍刷新', () => {
+  startMode('classic'); click('menu-pause');
+  const renderer = debug.state.renderer, drawMap = renderer.drawMap;
+  let paints = 0;
+  renderer.drawMap = function (...args) { paints++; return drawMap.apply(this, args); };
+  try {
+    pumpFrames(1);
+    const first = paints;
+    pumpFrames(60);
+    assert.equal(paints, first, '静态菜单不应每帧重画');
+    makeMapCard('frost').dispatch('click');
+    pumpFrames(1);
+    assert.equal(paints, first + 1, '菜单切图立即重画');
+    click('start-button'); pumpFrames(1);
+    const started = paints;
+    assert.ok(started > first + 1, '新对局立即更新小地图');
+    click('pause-button'); pumpFrames(1);
+    const paused = paints, game = debug.state.game;
+    game.actors[0].alive = false;
+    debug.state.spectateId = game.actors[1].id;
+    pumpFrames(1);
+    assert.equal(paints, paused + 1, '冻结时镜头切换应更新视野框');
+    pumpFrames(4);
+    assert.equal(paints, paused + 1);
+  } finally { renderer.drawMap = drawMap; }
+  click('menu-pause');
+});
+
 const { BIOMES, biomeOf } = await import('../dist/js/biomes.js');
 for (const mode of ['classic', 'melee']) for (const mapId of Object.keys(BIOMES)) {
   scenario(`${mode}/${mapId}: 地图选择、模式切换、地图锁定与重开`, () => {
@@ -729,6 +757,26 @@ scenario('A03 原生按钮空格不被吞，帮助显示时游戏键隔离，战
   assert.equal(game.time, beforeTime, '帮助显示时模拟保持暂停');
   click('close-help');
   assert.equal(hidden('help-overlay'), true);
+});
+
+scenario('C02 技能卡焦点下方向键防滚动并移动，空格仍能原生选卡', () => {
+  const game = startMode('classic'), player = game.actors[0];
+  for (const actor of game.actors) { actor.isPlayer = true; actor.attackTimer = Infinity; }
+  game.monsters = []; game.gems = [];
+  player.x = player.prevX = 1024; player.y = player.prevY = 1024;
+  player.pendingChoices = 1; player.choices = ['power', 'vitality', 'focus'];
+  pumpFrames(8);
+  const card = document.getElementById('choices').querySelector('[data-choice="0"]');
+  card.focus();
+  const y = player.y;
+  const arrow = window.dispatch('keydown', { key: 'ArrowDown', target: card });
+  assert.equal(arrow.defaultPrevented, true);
+  pumpFrames(8);
+  assert.ok(player.y > y, '聚焦技能卡仍需正常移动');
+  window.dispatch('keyup', { key: 'ArrowDown' });
+  const space = window.dispatch('keydown', { key: ' ', target: card });
+  assert.equal(space.defaultPrevented, false);
+  assert.equal(player.skills.power, 1, '空格仍可原生激活技能卡');
 });
 
 scenario('A02/A03 帮助完成按钮空格可原生关闭，背景仍不恢复', () => {
@@ -1203,6 +1251,35 @@ scenario('首领：选技不停战、真实死亡保留原卡、自动复活清�
   assert.ok(player.invulnerableUntil > game.time);
   assert.match(document.getElementById('footer-status').textContent, /重生保护/);
 });
+
+for (const weapon of ['classic', 'melee']) {
+  scenario(`C01 首领 ${weapon}：复活帧清旧输入，复活后的新按键跨HUD持续移动`, () => {
+    const game = startBoss(weapon), player = game.actors[0];
+    quietBoss(game);
+    damage(game, player, player.maxHp + 1, { type: 'trap' });
+    pumpFrames(8);
+    game.time = player.respawnAt - 1 / 120;
+    debug.state.accumulator = 1 / 120;
+    debug.state.lastHud = frameTime;
+    window.dispatch('keydown', { key: 'd' });
+    pumpFrames(1);
+    assert.equal(player.alive, true);
+    assertInputCleared(game);
+    assert.equal(player.x, game.map.spawnPoints[0].x, '复活这一帧不能使用死前输入');
+    window.dispatch('keyup', { key: 'd' });
+    window.dispatch('keydown', { key: 'd' });
+    pumpFrames(1);
+    const earlyX = player.x;
+    pumpFrames(8);
+    assert.equal(debug.state.keys.has('d'), true, 'HUD不能删除复活后产生的输入');
+    const acrossHudX = player.x;
+    assert.ok(acrossHudX > earlyX);
+    window.dispatch('keydown', { key: 'd', repeat: true });
+    pumpFrames(20);
+    assert.ok(player.x > acrossHudX, '持续按住不能被界面刷新打断');
+    window.dispatch('keyup', { key: 'd' });
+  });
+}
 
 scenario('首领：全员倒下仍推进、600 秒无得分结算和击杀后的并列第一', () => {
   let game = startBoss();

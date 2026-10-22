@@ -71,7 +71,11 @@ export function createInput(state, actions) {
       if (PREVENT_DEFAULT.has(key)) event.preventDefault();
       return;
     }
-    if (PREVENT_DEFAULT.has(key) && isGameKeyboardContext(event)) event.preventDefault();
+    const choiceMovement = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)
+      && state.started && !state.game.paused && !state.game.result && state.game.actors[0].alive
+      && !$('choices').classList.contains('hidden') && $('choices').contains(event.target);
+    // Arrow keys still move during selection; Space/Enter retain native activation.
+    if (PREVENT_DEFAULT.has(key) && (isGameKeyboardContext(event) || choiceMovement)) event.preventDefault();
     if (event.repeat) return;
     if (key === 'escape') {
       actions.togglePause();

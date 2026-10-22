@@ -53,6 +53,9 @@ function tickSimulation(deltaSeconds) {
   state.accumulator += deltaSeconds;
   let ticks = 0;
   while (state.accumulator >= STEP && ticks++ < MAX_CATCHUP_STEPS) {
+    // Discard input from the death wait before the step that may respawn us.
+    // HUD updates must never clear fresh input received after that transition.
+    if (!state.game.actors[0].alive) input.clearInput();
     const aim = input.aimWorld();
     const attack = input.readAttack();
     const { mx, my } = input.movementAxes();

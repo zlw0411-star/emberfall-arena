@@ -1,0 +1,73 @@
+name: Game regression
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-regression-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Unit, simulation, DOM, performance and unchanged state baseline
+        run: npm run verify
+      - name: Preserve actual performance and verification results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-node-${{ matrix.node }}
+          path: .local/baseline-output/verify-last.json
+          if-no-files-found: warn
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BROWSER_EXECUTABLE: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check the runner browser
+        run: '"$BROWSER_EXECUTABLE" --version'
+      - name: Native keyboard, respawn and responsive minimap
+        run: npm run test:browser
+
+  boss-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Four maps, both weapons, three seeds at 60Hz
+        run: |
+          mkdir -p .local
+          node tests/boss-simulate.mjs > .local/boss-matrix.jsonl
+      - name: Preserve full match results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boss-matrix
+          path: .local/boss-matrix.jsonl
+          if-no-files-found: warn

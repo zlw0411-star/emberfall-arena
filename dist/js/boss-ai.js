@@ -4,7 +4,7 @@ import {
   ACTIVES, dashDistance, dashRadius, frostNovaRadius, heavySlashRange,
   lungeDistance, piercingThrustRange, quakeRadius, whirlwindRadius,
 } from './balance.js';
-import { bossAttackContains } from './boss.js';
+import { bossAttackContains, bossAttackThreatensStep } from './boss.js';
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const live = entity => entity?.alive !== false && entity?.hp > 0;
@@ -119,7 +119,22 @@ function moveToward(game, actor, boss, target, dt, fallbackThink) {
   return { mx: decision.mx || 0, my: decision.my || 0 };
 }
 
-function castAtBoss(game, actor, boss, d, allowMovement = true, avoidAttack = null) {
+function windupInRange(game, actor, boss, id, range, movement, dt) {
+  // Predict the current movement through the first damage frame. Do not stop
+  // dodging to rescue a cast: keep the cooldown when retreat would outrange it.
+  const duration = Math.ceil(ACTIVES[id].windup / dt) * dt;
+  const length = Math.max(1, Math.hypot(movement.mx || 0, movement.my || 0));
+  let slow = (game.map.traps || []).some(trap => trap.type === 'mud'
+    && distance(actor, trap) < trap.r + actor.radius) ? .55 : 1;
+  if (actor.slowUntil > game.time) slow *= .65;
+  const travel = actor.speed * slow * (actor.combatSpeedMult || 1) * duration;
+  const predicted = { x: actor.x, y: actor.y, radius: actor.radius || 12 };
+  moveEntity(game.map, predicted, (movement.mx || 0) / length * travel, (movement.my || 0) / length * travel);
+  return distance(predicted, boss) <= boss.radius + range - 4
+    && lineClear(game.map, predicted, boss, 1);
+}
+
+function castAtBoss(game, actor, boss, d, { allowMovement = true, avoidAttack = null, movement = {}, dt = 1 / 60 } = {}) {
   if (actor.meleeAction) return -1;
   const edge = Math.max(0, d - boss.radius);
   for (let i = 0; i < (actor.activeSkills || []).length; i++) {
@@ -131,8 +146,10 @@ function castAtBoss(game, actor, boss, d, allowMovement = true, avoidAttack = nu
     if (id === 'frostNova' && edge <= frostNovaRadius(rank)) return i;
     if (id === 'quake' && edge <= quakeRadius(rank)) return i;
     if (id === 'whirlwind' && edge <= whirlwindRadius(rank)) return i;
-    if (id === 'heavySlash' && edge <= heavySlashRange(rank) - 4) return i;
-    if (id === 'piercingThrust' && edge <= piercingThrustRange(rank) - 4) return i;
+    if (id === 'heavySlash' && edge <= heavySlashRange(rank) - 4
+      && windupInRange(game, actor, boss, id, heavySlashRange(rank), movement, dt)) return i;
+    if (id === 'piercingThrust' && edge <= piercingThrustRange(rank) - 4
+      && windupInRange(game, actor, boss, id, piercingThrustRange(rank), movement, dt)) return i;
     // A dash must stop outside the solid Boss body. Do not waste movement
     // skills by charging into its center, even if the final shock could hit.
     const reach = id === 'lunge' ? lungeDistance(rank) : id === 'dash' ? dashDistance(rank) : 0;
@@ -167,14 +184,14 @@ export function thinkBoss(game, actor, dt = 1 / 30, fallbackThink) {
     return protectedActor ? { ...result, castSlot: -1, attackHeld: false, attackPressed: false } : result;
   }
   const attack = boss.attack;
-  const dangerous = attack && game.time < attack.startedAt + attack.windup + attack.active;
+  const dangerous = bossAttackThreatensStep(attack, game.time, dt);
   const hazard = spikeDanger(game, actor, actor.radius || 12);
   if ((dangerous && bossAttackContains(attack, boss, actor, (actor.radius || 12) + 24)) || hazard) {
     const target = dodgeTarget(game, actor, boss, dangerous ? attack : null);
     const movement = target ? moveToward(game, actor, boss, target, dt, fallbackThink) : { mx: 0, my: 0 };
     const d = distance(actor, boss), melee = modeOf(actor.combatMode || game.mode).weaponType === 'sword';
     const visible = lineClear(game.map, actor, boss, 1);
-    const castSlot = !protectedActor && visible ? castAtBoss(game, actor, boss, d, false) : -1;
+    const castSlot = !protectedActor && visible ? castAtBoss(game, actor, boss, d, { allowMovement: false, movement, dt }) : -1;
     return { ...movement, aimX: boss.x, aimY: boss.y, castSlot,
       attackHeld: !!(melee && !protectedActor && visible && d <= (actor.attackRange || 68) + boss.radius - 4 && !actor.meleeAction && castSlot < 0) };
   }
@@ -232,7 +249,8 @@ export function thinkBoss(game, actor, dt = 1 / 30, fallbackThink) {
     if (!dangerous || !bossAttackContains(attack, boss, target, (actor.radius || 12) + 16)) movement = moveToward(game, actor, boss, target, dt, fallbackThink);
   }
   const visible = lineClear(game.map, actor, boss, 1);
-  const castSlot = !protectedActor && visible ? castAtBoss(game, actor, boss, d, true, dangerous ? attack : null) : -1;
+  const castSlot = !protectedActor && visible ? castAtBoss(game, actor, boss, d,
+    { avoidAttack: dangerous ? attack : null, movement, dt }) : -1;
   return {
     ...movement, aimX: boss.x, aimY: boss.y, castSlot,
     attackHeld: !!(melee && !protectedActor && visible && d <= range + boss.radius - 4 && !actor.meleeAction && castSlot < 0),

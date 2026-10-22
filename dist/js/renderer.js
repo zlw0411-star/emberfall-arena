@@ -84,7 +84,14 @@ export class Renderer{
   // Warm embers drift over the cold ruins.
   if(!drawBiomeAmbient(c,this.biome,game.time,left,top,w/z,h/z))for(let i=0;i<24;i++){const x=left+((i*149+game.time*3)%(w/z)),y=top+((i*91-game.time*7+10000)%(h/z));c.globalAlpha=.15+.25*Math.sin(i+game.time);rect(c,'#ddc485',x,y,1+(i%2),1+(i%2));}c.globalAlpha=1;
   if(game.zone){const q=game.zone;c.save();c.fillStyle='#ba61402e';c.beginPath();c.rect(left-2,top-2,w/z+4,h/z+4);c.arc(q.x,q.y,Math.max(.1,q.radius),0,Math.PI*2,true);c.fill('evenodd');c.strokeStyle='#ecb477';c.lineWidth=2;c.setLineDash([9,6]);c.beginPath();c.arc(q.x,q.y,Math.max(.1,q.radius),0,Math.PI*2);c.stroke();c.setLineDash([]);rect(c,'#e6bd79',q.x-2,q.y-8,4,16);rect(c,'#e6bd79',q.x-8,q.y-2,16,4);c.restore();}
-  c.restore();if(game.time-this.lastMap>.1||!started){this.drawMap(game);this.lastMap=game.time;}
+  c.restore();
+  const mapView=[this.camera.x,this.camera.y,w,h,z].join(',');
+  const frozen=!started||game.paused||game.result;
+  if(game.time-this.lastMap>.1||this.lastMapGame!==game||this.lastMapStarted!==started
+    ||(frozen&&this.lastMapView!==mapView)){
+   this.drawMap(game);this.lastMap=game.time;this.lastMapGame=game;
+   this.lastMapStarted=started;this.lastMapView=mapView;
+  }
  }
  obstacle(c,o){
   if(drawBiomeObstacle(c,o,this.biome))return;

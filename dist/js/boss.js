@@ -83,6 +83,12 @@ function startAttack(game, boss) {
   boss.nextAttackAt = game.time + attack.windup + attack.active + attack.recovery + 1.1 * STAGE_INTERVAL[boss.stage - 1];
 }
 
+// Includes the warning and any elapsed step overlapping the active window.
+// AI runs after time advances but before damage, so both must use this boundary.
+export function bossAttackThreatensStep(attack, time, dt) {
+  return !!attack && time - dt < attack.startedAt + attack.windup + attack.active;
+}
+
 export function tickBoss(game, dt) {
   const boss = game.boss;
   if (!boss || !(dt > 0)) return;
@@ -96,7 +102,7 @@ export function tickBoss(game, dt) {
   const activeAt = attack.startedAt + attack.windup;
   const activeEnd = activeAt + attack.active;
   // Intersect the elapsed step with the window, so coarse headless steps cannot skip hits.
-  if (game.time >= activeAt && game.time - dt < activeEnd) {
+  if (game.time >= activeAt && bossAttackThreatensStep(attack, game.time, dt)) {
     for (const actor of game.actors || []) {
       if (!alive(actor) || actor.invulnerableUntil > game.time || attack.hitIds.has(actor.id)) continue;
       if (!bossAttackContains(attack, boss, actor, actor.radius || 12)) continue;

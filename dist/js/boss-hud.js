@@ -91,12 +91,10 @@ export function updateBossHud(state, actions) {
     const living = game.actors.filter(a => a.alive);
     if (!living.some(a => a.id === state.spectateId)) state.spectateId = living[0]?.id || null;
   } else {
-    if (state.bossWasDead) actions.clearInput();
     $('game-shell').classList.remove('spectating');
     state.spectateId = null; state.deathDismissed = false;
     show('death-card', false);
   }
-  state.bossWasDead = !player.alive;
   updateBossRanking(state, ranking, player);
   if (!game.result) return;
   actions.clearInput(); show('death-card', false); show('choices', false); show('result-overlay', true); show('zone-banner', false);

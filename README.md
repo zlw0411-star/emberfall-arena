@@ -6,7 +6,7 @@
 
 了解项目从初版到当前玩法的变化，请阅读[游戏迭代历程与开发复盘](docs/EVOLUTION.md)，包括需求变化、体验反馈、重构修复和首领平衡试验。
 
-最近一次源码修复包括竞技观战焦点、窄屏观战入口、小地图显示比例和多指针攻击输入，详见[本轮修复记录](docs/FIXES-20261021.md)。此前已发布的过期选技卡、帮助与键盘、地刺冷却、火球出生、性能阈值、说明和晶体上限修复见[八项修复记录](docs/FIXES-20261020.md)。本地验证、源码同步与试玩站点部署分别记录在[VALIDATION.md](docs/VALIDATION.md)。
+最近一次本地修复包括复活输入、技能卡方向键、首领AI攻击窗口、前摇技能预测、静态小地图缓存和自动回归，详见[修复记录](docs/FIXES-20261022.md)。此前的竞技观战焦点、窄屏观战入口、小地图比例和多指针输入修复见[10月21日修复记录](docs/FIXES-20261021.md)。本地验证、源码同步与试玩站点部署分别记录在[VALIDATION.md](docs/VALIDATION.md)。
 
 ## 运行
 
@@ -82,6 +82,7 @@ npm start
 ```powershell
 npm run verify        # 常规回归入口（推荐）
 npm test              # 只跑单元测试
+npm run test:browser  # 真实Chrome/Edge/Chromium输入与布局检查
 npm run simulate
 npm run duels
 npm run melee-duels
@@ -92,6 +93,8 @@ node tests/boss-simulate.mjs # 四地图×双武器×三种子，24局首领战
 `npm run verify` 串联六项检查：单元测试、双模式 60Hz 整局模拟、DOM 冒烟测试、对砍基准、性能，以及**逐秒状态哈希与改动前基线逐字节比对**。DOM 测试真实启动 `app.js`，覆盖开局、暂停、移动、近战挥刀，以及两种模式的死亡观战、胜负和平局结算、输入清理、重开和返回菜单再开局；每帧检查下一帧已注册，防止浮层报错让游戏停止刷新。任何一项失败即判定不可提交。
 
 竞技性能默认要求P95不超过8ms，`PERFORMANCE_P95_BUDGET_MS`可设置有限正数预算，超限返回失败；verify摘要保留实际性能指标。玩法修正若确实改变状态，必须先证明差异原因并记录后，才能有意更新基线；纯重构不能用重建基线掩盖回归。
+
+`verify`自动发现`tests/`根目录下所有`.test.js`。另有独立的`npm run test:browser`，需要本机Chrome、Edge或Chromium，可通过`BROWSER_EXECUTABLE`指定路径；没有浏览器会失败，不静默跳过。[待启用的GitHub工作流](docs/ci/verify.yml)配置了Node22/24回归、真实Chrome检查与24局首领矩阵，并保存结果；当前凭据缺少`workflow`权限，尚不能创建Actions入口。源码同步及部署情况见验证记录。
 
 `tests/simulate.js` 支持通过命令行传入种子。规则测试使用 Node 原生测试运行器；模拟无绘制，所有角色使用同一套 AI。地图随机、技能选择和对局可用相同种子复现。
 
