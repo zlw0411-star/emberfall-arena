@@ -1,5 +1,14 @@
 # 验证记录
 
+## 输入与首领AI修复版线上发布（2026-10-22 08:47，Asia/Shanghai）
+
+- 游戏源码提交：`1eec28bd48ae0dbd22e161896c2eefd32e2bc03c`，已推送GitHub `main`，并由官方Sites source helper同步、打包同一提交。后续发布记录提交仅改文档。
+- 原生 `sites.save_version_and_deploy_private` 于北京时间2026-10-22 08:47:52返回 `succeeded`。试玩地址保持 https://emberfall-rogue-arena-1015.flowyaspen.chatgpt.site ，发布前原生get_site确认owner-private，发布后仍保留该访问范围。
+- Site：`appgprj_6ad0c31508c0819192df1f0d79c32a01`；保存版本：`appgprj_6ad0c31508c0819192df1f0d79c32a01~appgver_b040a9ffe32c8191bf2c35ca05be7782`；部署：`appgdep_6ad95d2ad6448191ae191e9708e25854`。
+- 复用紧前通过的10/10回归、真实Edge三组检查和首领24局矩阵；推送整理只修改文档及待启用CI配置位置，发布版的`dist`、`tests`、`package.json`与已验证版本无差异。平台成功结果确认部署，本轮未额外登录私有站点进行线上完整对局。
+- GitHub首次拒绝创建`.github/workflows/verify.yml`，明确缺少OAuth `workflow`权限。没有扩大权限或绕过校验：原本地提交由`local/validated-32af9b5`保留，发布提交将配置保存为`docs/ci/verify.yml`，游戏和测试正常推送。Actions当前未启用，补充授权及启用步骤见 [CI说明](ci/README.md)。
+- 发布通过已登录的官方Codex CLI调用Sites原生连接器完成。源码写凭据仅保留在临时会话内存并经隐藏stdin传给官方helper；没有写入Git、文件、命令行或日志。只保存了必要的非敏感发布元数据。
+
 ## 输入、首领AI与静态绘制修复（2026-10-22，本地完成）
 
 - 基于`43eca0a`完成C01—C03及O01—O03：复活输入、聚焦技能卡的方向键滚页、首领AI最后危险帧、前摇技能射程预测、菜单小地图缓存，以及测试自动发现和GitHub回归工作流。详见 [修复记录](FIXES-20261022.md) 和 [正式数据](fix-validation-20261022.json)。当前源码同步和发布状态见本文顶部后续记录；GitHub凭据缺少`workflow`权限，Actions暂以`docs/ci/verify.yml`保存，未启用。
